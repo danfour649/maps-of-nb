@@ -298,8 +298,11 @@ gmBtn.addEventListener('click', async () => {
   const rasters = ['geonb-imagery', 'geonb-topo', 'esri-imagery', 'geonb-imagery-year'];
   for (const id of rasters) map.setLayoutProperty(id, 'visibility', gmOn ? 'none' : (id === 'geonb-imagery' ? 'visible' : 'none'));
   map.setLayoutProperty('gm-bg', 'visibility', gmOn ? 'visible' : 'none');
-  map.setLayoutProperty('gm-hillshade', 'visibility', gmOn ? 'visible' : 'none');
-  map.setTerrain(gmOn ? { source: 'terrarium-dem', exaggeration: 1.3 } : null);
+  const gmTerrain = document.getElementById('gm-terrain') as HTMLInputElement;
+  const relief = gmOn && gmTerrain.checked;
+  map.setLayoutProperty('gm-hillshade', 'visibility', relief ? 'visible' : 'none');
+  map.setTerrain(relief ? { source: 'terrarium-dem', exaggeration: 1.3 } : null);
+  (document.getElementById('gm-terrain-row') as HTMLElement).hidden = !gmOn;
   map.setLayoutProperty('gm-roads', 'visibility', gmOn ? 'visible' : 'none');
   map.setLayoutProperty('gm-buildings', 'visibility', gmOn ? 'visible' : 'none');
   gmStats.hidden = !gmOn;
@@ -322,3 +325,9 @@ function setHudCollapsed(collapsed: boolean) {
 hudToggle.addEventListener('click', () =>
   setHudCollapsed(!hud.classList.contains('collapsed')));
 if (window.innerWidth <= 560) setHudCollapsed(true);
+
+document.getElementById('gm-terrain')!.addEventListener('change', (e) => {
+  const on = (e.target as HTMLInputElement).checked && gmOn;
+  map.setLayoutProperty('gm-hillshade', 'visibility', on ? 'visible' : 'none');
+  map.setTerrain(on ? { source: 'terrarium-dem', exaggeration: 1.3 } : null);
+});
