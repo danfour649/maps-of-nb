@@ -101,7 +101,12 @@ flags overflow with `exceededTransferLimit`; the viewer ignored the flag
 viewports on every pan with no reuse, and contour generation on GeoNB's
 side can take ~30 s cold. Shipped quick wins: paged fetching until the
 flag clears, a per-layer grid-cell cache (0.02 deg cells) so revisited
-areas cost no requests, and stale-load discard on rapid pans. Planned
-next: bake buildings/roads/wetlands/contours into a static PMTiles
-archive from the exports and stream tiles instead of querying ArcGIS at
-runtime (ArcGIS stays the source for refreshes and the OSM compare).
+areas cost no requests, and stale-load discard on rapid pans. PMTiles phase (shipped 2026-10-18): buildings/roads/wetlands are baked
+into tiles/fredericton.pmtiles (scripts/bake_tiles.py, z10-16, 7.3 MB) and
+served same-origin at maps-of-nb.vercel.app/fredericton.pmtiles (GitHub
+release assets were rejected for the viewer: no CORS headers; the
+tiles-v1 release remains the download copy). The viewer probes the
+archive on load and switches the heavy layers to tiles, falling back to
+the live path if unreachable. Contours join in a v2 bake once the
+citywide contour extraction gets past GeoNB's 500s (the extractor now
+bisects dead pages); until then contours stay on the live paged path.
