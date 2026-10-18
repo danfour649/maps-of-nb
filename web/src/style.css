@@ -43,3 +43,18 @@ html, body { margin: 0; height: 100%; font-family: ui-sans-serif, system-ui, -ap
 .tour.alt { background:#2c3e50; }
 .tour.alt.on { background:#b83a2a; }
 #gm-stats { color:#ffd9a0; }
+
+.hud-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+#hud h1 { margin:0; }
+#hud-toggle {
+  appearance:none; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.06);
+  color:#dbe7f0; border-radius:8px; width:30px; height:26px; font-size:14px; line-height:1;
+  cursor:pointer; flex:none; transition:transform 0.15s ease;
+}
+#hud.collapsed #hud-toggle { transform:rotate(-90deg); }
+#hud.collapsed #hud-body { display:none; }
+#hud.collapsed { padding-bottom:10px; }
+@media (max-width: 560px) {
+  #hud { top:10px; left:10px; padding:10px 12px; }
+  #hud-body { max-height:58vh; overflow-y:auto; }
+}

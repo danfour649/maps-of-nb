@@ -311,3 +311,14 @@ gmBtn.addEventListener('click', async () => {
     map.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
   }
 });
+
+// ---------- Collapsible control panel (mobile) ----------
+const hud = document.getElementById('hud')!;
+const hudToggle = document.getElementById('hud-toggle') as HTMLButtonElement;
+function setHudCollapsed(collapsed: boolean) {
+  hud.classList.toggle('collapsed', collapsed);
+  hudToggle.setAttribute('aria-expanded', String(!collapsed));
+}
+hudToggle.addEventListener('click', () =>
+  setHudCollapsed(!hud.classList.contains('collapsed')));
+if (window.innerWidth <= 560) setHudCollapsed(true);

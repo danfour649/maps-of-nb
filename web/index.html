@@ -9,7 +9,11 @@
   <body>
     <div id="app">
       <header id="hud">
-        <h1>Maps of NB</h1>
+        <div class="hud-head">
+          <h1>Maps of NB</h1>
+          <button id="hud-toggle" aria-label="Show or hide controls" aria-expanded="true">▾</button>
+        </div>
+        <div id="hud-body">
         <p class="sub">Fredericton, straight from <a href="https://geonb.snb.ca" target="_blank" rel="noreferrer">GeoNB</a> open data — the same source feeding the <a href="https://github.com/danfour649/maps-of-nb" target="_blank" rel="noreferrer">maps-of-nb</a> catalogue and the next generation of GTA Fredericton maps.</p>
         <div class="row">
           <span class="label">Basemap</span>
@@ -37,6 +41,7 @@
           <button data-view="city">Whole city</button>
         </div>
         <p class="fine">Imagery: GeoNB orthophotos (latest contribution 13,000 km² at 0.15 m, flown 2025). Esri layer via Esri World Imagery. Not affiliated with the Government of New Brunswick.</p>
+        </div>
       </header>
       <div id="map"></div>
       <div id="caption" hidden>
