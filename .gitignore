@@ -7,3 +7,7 @@ data/downloads/
 *.jp2
 *.las
 *.laz
+
+# Full-city game exports are tens of MB — generated locally, stats committed
+data/game-exports/fredericton/buildings.geojson
+data/game-exports/fredericton/roads.geojson
