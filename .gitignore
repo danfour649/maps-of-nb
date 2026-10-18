@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+data/raw/
+data/downloads/
+*.tif
+*.jp2
+*.las
+*.laz
