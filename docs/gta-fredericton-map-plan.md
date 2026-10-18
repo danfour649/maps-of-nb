@@ -92,3 +92,16 @@ gets the LiDAR DTM.
   pulls, no hammering the export endpoint.
 - Data stays under GeoNB's terms; the repo ships code and derived game data,
   not raw provincial datasets.
+
+## Viewer loading: quick wins shipped, PMTiles next
+
+Diagnosis (2026-10-18): GeoNB caps responses at 1,000-2,000 features and
+flags overflow with `exceededTransferLimit`; the viewer ignored the flag
+(a zoom-13 city view holds ~18k buildings but drew ~2k), re-fetched whole
+viewports on every pan with no reuse, and contour generation on GeoNB's
+side can take ~30 s cold. Shipped quick wins: paged fetching until the
+flag clears, a per-layer grid-cell cache (0.02 deg cells) so revisited
+areas cost no requests, and stale-load discard on rapid pans. Planned
+next: bake buildings/roads/wetlands/contours into a static PMTiles
+archive from the exports and stream tiles instead of querying ArcGIS at
+runtime (ArcGIS stays the source for refreshes and the OSM compare).

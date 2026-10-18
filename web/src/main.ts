@@ -191,6 +191,95 @@ document.querySelectorAll<HTMLButtonElement>('#views button').forEach((btn) => {
   });
 });
 
+// ---------- Shared ArcGIS vector loading: paging + grid-cell cache ----------
+// GeoNB caps every response at 1,000-2,000 features and flags the overflow
+// with properties.exceededTransferLimit. The first loaders ignored the flag,
+// so dense viewports silently lost most features (a zoom-13 view of the city
+// holds ~18k buildings; the service hands back 2,000). fetchLayer() pages
+// until the flag clears and caches per fixed grid cell, so panning back to
+// a visited area costs no requests. Pre-baked PMTiles are the planned
+// successor; this keeps the live-ArcGIS path honest until then.
+const PAGE_SIZE = 1000;
+const CELL_DEG = 0.02;
+type FColl = { type: 'FeatureCollection'; features: any[] };
+const cellCache = new Map<string, Map<string, any[]>>();
+const cellInflight = new Map<string, Promise<any[]>>();
+
+function featKey(f: any): string {
+  const p = f.properties ?? {};
+  const id = f.id ?? p.OBJECTID_1 ?? p.OBJECTID ?? p.Road_Segment_ID;
+  if (id !== undefined && id !== null) return 'id:' + id;
+  const c = f.geometry?.coordinates;
+  return 'g:' + JSON.stringify(f.geometry?.type) + ':' + JSON.stringify(c?.[0]?.[0] ?? c);
+}
+
+async function fetchCellFeatures(
+  service: string, layer: number, fields: string, orderField: string,
+  env: [number, number, number, number],
+): Promise<any[]> {
+  const out: any[] = [];
+  let offset = 0;
+  for (;;) {
+    const q = new URLSearchParams({
+      where: '1=1', geometry: env.join(','), geometryType: 'esriGeometryEnvelope',
+      inSR: '4326', outSR: '4326', outFields: fields, returnGeometry: 'true',
+      f: 'geojson', resultRecordCount: String(PAGE_SIZE),
+      resultOffset: String(offset), orderByFields: orderField,
+    });
+    const resp = await fetch(`${ARCGIS}/${service}/MapServer/${layer}/query?${q}`);
+    if (!resp.ok) throw new Error('arcgis ' + resp.status);
+    const gj = await resp.json();
+    const batch = gj.features ?? [];
+    out.push(...batch);
+    if (!gj.properties?.exceededTransferLimit || batch.length === 0) break;
+    offset += batch.length;
+    if (offset > 60000) break; // sanity stop; cells are ~2 km across
+  }
+  return out;
+}
+
+async function fetchLayer(
+  service: string, layer: number, fields: string, orderField: string,
+  bounds: { getWest(): number; getSouth(): number; getEast(): number; getNorth(): number },
+): Promise<FColl> {
+  const cacheKey = `${service}/${layer}/${fields}`;
+  let cells = cellCache.get(cacheKey);
+  if (!cells) { cells = new Map(); cellCache.set(cacheKey, cells); }
+  const i0 = Math.floor(bounds.getWest() / CELL_DEG), i1 = Math.floor(bounds.getEast() / CELL_DEG);
+  const j0 = Math.floor(bounds.getSouth() / CELL_DEG), j1 = Math.floor(bounds.getNorth() / CELL_DEG);
+  const jobs: Promise<void>[] = [];
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      const key = `${i},${j}`;
+      if (cells.has(key)) continue;
+      let p = cellInflight.get(cacheKey + '|' + key);
+      if (!p) {
+        const env: [number, number, number, number] =
+          [i * CELL_DEG, j * CELL_DEG, (i + 1) * CELL_DEG, (j + 1) * CELL_DEG];
+        p = fetchCellFeatures(service, layer, fields, orderField, env)
+          .then((feats) => { cells!.set(key, feats); return feats; })
+          .finally(() => cellInflight.delete(cacheKey + '|' + key));
+        cellInflight.set(cacheKey + '|' + key, p);
+      }
+      jobs.push(p.then(() => undefined));
+    }
+  }
+  await Promise.all(jobs);
+  const seen = new Set<string>();
+  const features: any[] = [];
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      for (const f of cells.get(`${i},${j}`) ?? []) {
+        const k = featKey(f);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        features.push(f);
+      }
+    }
+  }
+  return { type: 'FeatureCollection', features };
+}
+
 // ---------- 3D buildings from GeoNB's LiDAR-derived footprints ----------
 const hint = document.getElementById('b3d-hint');
 let buildingsOn = false;
@@ -205,20 +294,14 @@ async function refreshBuildings() {
     return;
   }
   if (hint) hint.textContent = '';
-  const b = map.getBounds();
-  const q = new URLSearchParams({
-    where: '1=1',
-    geometry: `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`,
-    geometryType: 'esriGeometryEnvelope', inSR: '4326', outSR: '4326',
-    outFields: 'min_g_elev,max_b_elev', returnGeometry: 'true',
-    f: 'geojson', resultRecordCount: '3000',
-  });
+  const token = ++buildingsToken;
   try {
-    const resp = await fetch(`${ARCGIS}/GeoNB_SNB_Buildings/MapServer/0/query?${q}`);
-    const gj = await resp.json();
+    const gj = await fetchLayer('GeoNB_SNB_Buildings', 0, 'min_g_elev,max_b_elev', 'OBJECTID_1', map.getBounds());
+    if (token !== buildingsToken || !buildingsOn) return; // a newer pan superseded this load
     (map.getSource('geonb-buildings') as maplibregl.GeoJSONSource).setData(gj);
   } catch { /* keep last data on transient errors */ }
 }
+let buildingsToken = 0;
 
 document.getElementById('b3d-toggle')?.addEventListener('change', (e) => {
   buildingsOn = (e.target as HTMLInputElement).checked;
@@ -365,14 +448,9 @@ const gmStats = document.getElementById('gm-stats')!;
 let gmOn = false;
 let gmLoading = false;
 
-async function gmFetch(service: string, layer: number, fields: string, bbox: string) {
-  const q = new URLSearchParams({
-    where: '1=1', geometry: bbox, geometryType: 'esriGeometryEnvelope',
-    inSR: '4326', outSR: '4326', outFields: fields, returnGeometry: 'true',
-    f: 'geojson', resultRecordCount: '3000',
-  });
-  const resp = await fetch(`${ARCGIS}/${service}/MapServer/${layer}/query?${q}`);
-  return resp.json();
+async function gmFetch(service: string, layer: number, fields: string, _bbox: string) {
+  const order = service.includes('Buildings') ? 'OBJECTID_1' : 'OBJECTID';
+  return fetchLayer(service, layer, fields, order, map.getBounds());
 }
 
 function cityTotalsText() {
@@ -381,8 +459,10 @@ function cityTotalsText() {
     : '';
 }
 
+let gmToken = 0;
 async function loadGmViewport() {
   if (!gmOn || gmLoading) return;
+  const token = ++gmToken;
   if (map.getZoom() < 13) {
     (map.getSource('gm-buildings') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
     (map.getSource('gm-roads') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
@@ -397,6 +477,7 @@ async function loadGmViewport() {
       gmFetch('GeoNB_SNB_Buildings', 0, 'min_g_elev,max_b_elev', bbox),
       gmFetch('GeoNB_Basemap_NBRN', 1, 'Number_Of_Lanes,Route_Name_English_1', bbox),
     ]);
+    if (token !== gmToken) return; // superseded by a newer pan
     (map.getSource('gm-buildings') as maplibregl.GeoJSONSource).setData(bj);
     (map.getSource('gm-roads') as maplibregl.GeoJSONSource).setData(rj);
     gmStats.innerHTML =
@@ -506,8 +587,10 @@ function matchPct(src: [number, number][], dst: [number, number][], radiusM: num
   return Math.round((100 * hits) / n);
 }
 
+let cmpToken = 0;
 async function loadCompare() {
   if (!cmpOn || cmpLoading) return;
+  (loadCompare as any)._t = ++cmpToken;
   if (map.getZoom() < 13) {
     cmpStats.textContent = 'Zoom in to compare the two sources where you are looking.';
     return;
@@ -533,6 +616,7 @@ async function loadCompare() {
     (map.getSource('cmp-geonb-roads') as maplibregl.GeoJSONSource).setData(gr);
     (map.getSource('cmp-osm-buildings') as maplibregl.GeoJSONSource).setData(ob);
     (map.getSource('cmp-osm-roads') as maplibregl.GeoJSONSource).setData(oroads);
+    if ((loadCompare as any)._t !== cmpToken) return;
     const g2o = matchPct(centroids(gb), centroids(ob), 15);
     const o2g = matchPct(centroids(ob), centroids(gb), 15);
     cmpStats.innerHTML =
@@ -569,29 +653,22 @@ cmpBtn.addEventListener('click', () => {
 let contoursOn = false;
 let wetlandsOn = false;
 
-async function envFetch(service: string, layer: number, fields: string, cap: string) {
-  const b = map.getBounds();
-  const q = new URLSearchParams({
-    where: '1=1', geometry: `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`,
-    geometryType: 'esriGeometryEnvelope', inSR: '4326', outSR: '4326',
-    outFields: fields, returnGeometry: 'true', f: 'geojson', resultRecordCount: cap,
-  });
-  const resp = await fetch(`${ARCGIS}/${service}/MapServer/${layer}/query?${q}`);
-  return resp.json();
-}
-
+let overlayToken = 0;
 async function refreshOverlays() {
+  const token = ++overlayToken;
   if (contoursOn) {
     if (map.getZoom() >= 12.5) {
       try {
-        const gj = await envFetch('GeoNB_SNB_Contours', 1, 'Contour', '4000');
+        const gj = await fetchLayer('GeoNB_SNB_Contours', 1, 'Contour', 'OBJECTID', map.getBounds());
+        if (token !== overlayToken) return;
         (map.getSource('geonb-contours') as maplibregl.GeoJSONSource).setData(gj);
       } catch { /* GeoNB flaky; next pan retries */ }
     }
   }
   if (wetlandsOn) {
     try {
-      const gj = await envFetch('GeoNB_ENV_Wetlands', 2, 'WETLAND_CLASS,STATUS,Hectares', '2000');
+      const gj = await fetchLayer('GeoNB_ENV_Wetlands', 2, 'WETLAND_CLASS,STATUS,Hectares', 'OBJECTID', map.getBounds());
+      if (token !== overlayToken) return;
       (map.getSource('geonb-wetlands') as maplibregl.GeoJSONSource).setData(gj);
     } catch { /* as above */ }
   }
