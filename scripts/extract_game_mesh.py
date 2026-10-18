@@ -28,6 +28,7 @@ PAGE = 1000
 
 LAYERS = {
     "buildings": ("GeoNB_SNB_Buildings", 0, "min_g_elev,max_b_elev", "OBJECTID_1"),
+    "wetlands": ("GeoNB_ENV_Wetlands", 2, "WETLAND_CLASS,STATUS,Hectares", "OBJECTID"),
     "roads": ("GeoNB_Basemap_NBRN", 1, "Number_Of_Lanes,Route_Name_English_1,Formatted_Street_Name,Func_Road_Class,Speed_Restrictions_Both,Dir_of_Traffic_Flow,Road_Segment_ID", "OBJECTID"),
 }
 BOUNDARY_SERVICE = ("GeoNB_ELG_MunicipalAreas2", 4)
@@ -189,7 +190,7 @@ def main() -> None:
     ap.add_argument("--bbox", help="W,S,E,N in EPSG:4326 (envelope mode)")
     ap.add_argument("--city", help='municipality Name, e.g. "The City of Fredericton" (boundary mode)')
     ap.add_argument("--out", default=None)
-    ap.add_argument("--only", default="", help="comma-separated subset of layers (buildings,roads)")
+    ap.add_argument("--only", default="", help="comma-separated subset of layers (buildings,roads,wetlands)")
     args = ap.parse_args()
 
     if args.city:

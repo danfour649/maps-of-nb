@@ -64,7 +64,7 @@ of Fredericton's open data instead.
 
 Already in GeoNB's 114-service catalogue (geonb.snb.ca/arcgis):
 parcels (GeoNB_SNB_Parcels), civic addresses (GeoNB_DPS_Civic_Address),
-1 m contours (GeoNB_SNB_Contours), wetlands, flood hazard + historical
+contours at 10 m and 50 m (GeoNB_SNB_Contours — no 1 m product), wetlands, flood hazard + historical
 floods, forest/ Crown land, electoral and health boundaries, imagery
 year index and the LiDAR index the terrain stage uses.
 

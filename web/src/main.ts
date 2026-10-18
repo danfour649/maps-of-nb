@@ -45,6 +45,8 @@ const style: maplibregl.StyleSpecification = {
     'cmp-osm-roads': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     'cmp-geonb-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     'cmp-geonb-roads': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    'geonb-contours': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    'geonb-wetlands': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     'terrarium-dem': {
       type: 'raster-dem', tileSize: 256, maxzoom: 15,
       tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
@@ -81,6 +83,26 @@ const style: maplibregl.StyleSpecification = {
     {
       id: 'boundary-line', type: 'line', source: 'city-boundary',
       paint: { 'line-color': '#7fd0ff', 'line-width': 1.6, 'line-dasharray': [2, 1.2], 'line-opacity': 0.85 },
+    },
+    {
+      id: 'wetlands-fill', type: 'fill', source: 'geonb-wetlands', layout: { visibility: 'none' },
+      paint: { 'fill-color': '#3f9d63', 'fill-opacity': 0.4 },
+    },
+    {
+      id: 'wetlands-line', type: 'line', source: 'geonb-wetlands', layout: { visibility: 'none' },
+      paint: { 'line-color': '#2e7d4f', 'line-width': 1.2 },
+    },
+    {
+      id: 'contours-line', type: 'line', source: 'geonb-contours', layout: { visibility: 'none' },
+      paint: { 'line-color': '#c9a86a', 'line-width': 1, 'line-opacity': 0.85 },
+    },
+    {
+      id: 'contours-label', type: 'symbol', source: 'geonb-contours', layout: {
+        visibility: 'none', 'symbol-placement': 'line',
+        'text-field': ['concat', ['to-string', ['get', 'Contour']], ' m'],
+        'text-size': 10, 'text-font': ['Open Sans Regular'],
+      },
+      paint: { 'text-color': '#e8d5a8', 'text-halo-color': 'rgba(20,16,8,0.85)', 'text-halo-width': 1.2 },
     },
     {
       id: 'cmp-geonb-roads', type: 'line', source: 'cmp-geonb-roads', layout: { visibility: 'none' },
@@ -538,4 +560,58 @@ cmpBtn.addEventListener('click', () => {
     map.setLayoutProperty(id, 'visibility', cmpOn ? 'visible' : 'none');
   cmpStats.hidden = !cmpOn;
   if (cmpOn) loadCompare();
+});
+
+// ---------- Contours + wetlands overlays (GeoNB) ----------
+// Contours are a QA/slope overlay (terrain heights come from the LiDAR DTM,
+// not from lines); wetlands are a game surface-type layer. Both load per
+// viewport when their toggle is on. See data-sources/002 and 003.
+let contoursOn = false;
+let wetlandsOn = false;
+
+async function envFetch(service: string, layer: number, fields: string, cap: string) {
+  const b = map.getBounds();
+  const q = new URLSearchParams({
+    where: '1=1', geometry: `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`,
+    geometryType: 'esriGeometryEnvelope', inSR: '4326', outSR: '4326',
+    outFields: fields, returnGeometry: 'true', f: 'geojson', resultRecordCount: cap,
+  });
+  const resp = await fetch(`${ARCGIS}/${service}/MapServer/${layer}/query?${q}`);
+  return resp.json();
+}
+
+async function refreshOverlays() {
+  if (contoursOn) {
+    if (map.getZoom() >= 12.5) {
+      try {
+        const gj = await envFetch('GeoNB_SNB_Contours', 1, 'Contour', '4000');
+        (map.getSource('geonb-contours') as maplibregl.GeoJSONSource).setData(gj);
+      } catch { /* GeoNB flaky; next pan retries */ }
+    }
+  }
+  if (wetlandsOn) {
+    try {
+      const gj = await envFetch('GeoNB_ENV_Wetlands', 2, 'WETLAND_CLASS,STATUS,Hectares', '2000');
+      (map.getSource('geonb-wetlands') as maplibregl.GeoJSONSource).setData(gj);
+    } catch { /* as above */ }
+  }
+}
+let overlayDebounce: ReturnType<typeof setTimeout> | undefined;
+map.on('moveend', () => {
+  if (!contoursOn && !wetlandsOn) return;
+  clearTimeout(overlayDebounce);
+  overlayDebounce = setTimeout(refreshOverlays, 350);
+});
+
+document.getElementById('contours-toggle')?.addEventListener('change', (e) => {
+  contoursOn = (e.target as HTMLInputElement).checked;
+  map.setLayoutProperty('contours-line', 'visibility', contoursOn ? 'visible' : 'none');
+  map.setLayoutProperty('contours-label', 'visibility', contoursOn ? 'visible' : 'none');
+  if (contoursOn) refreshOverlays();
+});
+document.getElementById('wetlands-toggle')?.addEventListener('change', (e) => {
+  wetlandsOn = (e.target as HTMLInputElement).checked;
+  map.setLayoutProperty('wetlands-fill', 'visibility', wetlandsOn ? 'visible' : 'none');
+  map.setLayoutProperty('wetlands-line', 'visibility', wetlandsOn ? 'visible' : 'none');
+  if (wetlandsOn) refreshOverlays();
 });
