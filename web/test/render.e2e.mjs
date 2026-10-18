@@ -71,6 +71,9 @@ try {
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
+  // Force the live-ArcGIS path under test: the baked-tiles probe must fail,
+  // so the fixture-driven assertions below exercise fetchLayer as before.
+  await page.route('**/fredericton.pmtiles', (route) => route.abort());
   await page.route('**geonb.snb.ca**', (route) => {
     const url = route.request().url();
     if (url.includes('GeoNB_SNB_Buildings')) route.fulfill({ json: buildings });

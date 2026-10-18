@@ -1,4 +1,19 @@
 import * as maplibregl from 'maplibre-gl';
+import { Protocol, PMTiles } from 'pmtiles';
+
+// Baked vector tiles (scripts/bake_tiles.py) served as a static archive.
+// When reachable, the heavy layers render from tiles; otherwise the viewer
+// falls back to live ArcGIS queries (paged + cell-cached fetchLayer below).
+// Same-origin static asset (web/public/fredericton.pmtiles, deployed by
+// Vercel): GitHub release assets don't send CORS headers, so the release
+// copy (tag tiles-v1) is the human/game download, not the viewer's source.
+const TILES_URL = '/fredericton.pmtiles';
+const TILES_HAS_CONTOURS = false; // flips true when the v2 bake adds the contours layer
+let tilesOn = false;
+{
+  const proto = new Protocol();
+  maplibregl.addProtocol('pmtiles', proto.tile);
+}
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './style.css';
 
@@ -16,7 +31,7 @@ const VIEWS: Record<string, { center: [number, number]; zoom: number }> = {
 
 const style: maplibregl.StyleSpecification = {
   version: 8,
-  glyphs: 'https://demotiles.maplibre.org/tiles/{fontstack}/{range}.pbf',
+  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
   sources: {
     'geonb-imagery': {
       type: 'raster', tileSize: 512, maxzoom: 18,
@@ -39,6 +54,7 @@ const style: maplibregl.StyleSpecification = {
       attribution: 'Imagery year © GeoNB',
     },
     'geonb-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    'nbtiles': { type: 'vector', url: 'pmtiles://' + TILES_URL },
     'gm-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     'city-boundary': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     'cmp-osm-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
@@ -77,6 +93,64 @@ const style: maplibregl.StyleSpecification = {
       },
     },
     {
+      id: 't-buildings-3d', type: 'fill-extrusion', source: 'nbtiles', 'source-layer': 'buildings',
+      layout: { visibility: 'none' },
+      paint: {
+        'fill-extrusion-height': ['max', ['-', ['get', 'max_b_elev'], ['get', 'min_g_elev']], 0],
+        'fill-extrusion-base': 0,
+        'fill-extrusion-opacity': 0.85,
+        'fill-extrusion-color': [
+          'interpolate', ['linear'], ['-', ['get', 'max_b_elev'], ['get', 'min_g_elev']],
+          0, '#7fa6bd', 8, '#c9a86a', 18, '#d96f3c', 30, '#b83a2a',
+        ],
+      },
+    },
+    {
+      id: 't-gm-buildings', type: 'fill-extrusion', source: 'nbtiles', 'source-layer': 'buildings',
+      layout: { visibility: 'none' },
+      paint: {
+        'fill-extrusion-height': ['max', ['-', ['get', 'max_b_elev'], ['get', 'min_g_elev']], 0],
+        'fill-extrusion-base': 0,
+        'fill-extrusion-opacity': 0.92,
+        'fill-extrusion-color': [
+          'interpolate', ['linear'], ['-', ['get', 'max_b_elev'], ['get', 'min_g_elev']],
+          0, '#3d5a73', 8, '#8a6f4d', 18, '#c65a2e', 30, '#e03a1e',
+        ],
+      },
+    },
+    {
+      id: 't-gm-roads', type: 'line', source: 'nbtiles', 'source-layer': 'roads',
+      layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': '#ffb454',
+        'line-width': ['interpolate', ['linear'], ['coalesce', ['get', 'Number_Of_Lanes'], 2], 1, 1.5, 2, 2.5, 4, 5, 6, 7],
+        'line-opacity': 0.95,
+      },
+    },
+    {
+      id: 't-wetlands-fill', type: 'fill', source: 'nbtiles', 'source-layer': 'wetlands',
+      layout: { visibility: 'none' }, paint: { 'fill-color': '#3f9d63', 'fill-opacity': 0.4 },
+    },
+    {
+      id: 't-wetlands-line', type: 'line', source: 'nbtiles', 'source-layer': 'wetlands',
+      layout: { visibility: 'none' }, paint: { 'line-color': '#2e7d4f', 'line-width': 1.2 },
+    },
+    {
+      id: 't-contours-line', type: 'line', source: 'nbtiles', 'source-layer': 'contours',
+      layout: { visibility: 'none' }, minzoom: 12.5,
+      paint: { 'line-color': '#c9a86a', 'line-width': 1, 'line-opacity': 0.85 },
+    },
+    {
+      id: 't-contours-label', type: 'symbol', source: 'nbtiles', 'source-layer': 'contours',
+      layout: {
+        visibility: 'none', 'symbol-placement': 'line',
+        'text-field': ['concat', ['to-string', ['get', 'Contour']], ' m'],
+        'text-size': 10, 'text-font': ['Noto Sans Regular'],
+      },
+      minzoom: 13.5,
+      paint: { 'text-color': '#e8d5a8', 'text-halo-color': 'rgba(20,16,8,0.85)', 'text-halo-width': 1.2 },
+    },
+    {
       id: 'boundary-fill', type: 'fill', source: 'city-boundary',
       paint: { 'fill-color': '#7fd0ff', 'fill-opacity': 0.045 },
     },
@@ -100,7 +174,7 @@ const style: maplibregl.StyleSpecification = {
       id: 'contours-label', type: 'symbol', source: 'geonb-contours', layout: {
         visibility: 'none', 'symbol-placement': 'line',
         'text-field': ['concat', ['to-string', ['get', 'Contour']], ' m'],
-        'text-size': 10, 'text-font': ['Open Sans Regular'],
+        'text-size': 10, 'text-font': ['Noto Sans Regular'],
       },
       paint: { 'text-color': '#e8d5a8', 'text-halo-color': 'rgba(20,16,8,0.85)', 'text-halo-width': 1.2 },
     },
@@ -286,7 +360,7 @@ let buildingsOn = false;
 let fetchTimer: number | undefined;
 
 async function refreshBuildings() {
-  if (!buildingsOn) return;
+  if (!buildingsOn || tilesOn) return;
   if (map.getZoom() < 14.5) {
     (map.getSource('geonb-buildings') as maplibregl.GeoJSONSource)
       .setData({ type: 'FeatureCollection', features: [] });
@@ -306,6 +380,7 @@ let buildingsToken = 0;
 document.getElementById('b3d-toggle')?.addEventListener('change', (e) => {
   buildingsOn = (e.target as HTMLInputElement).checked;
   map.setLayoutProperty('buildings-3d', 'visibility', buildingsOn ? 'visible' : 'none');
+  syncTilesVisibility();
   if (buildingsOn) {
     map.easeTo({ pitch: 55, duration: 1200 });
     refreshBuildings();
@@ -464,9 +539,26 @@ async function loadGmViewport() {
   if (!gmOn || gmLoading) return;
   const token = ++gmToken;
   if (map.getZoom() < 13) {
-    (map.getSource('gm-buildings') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
-    (map.getSource('gm-roads') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
+    if (!tilesOn) {
+      (map.getSource('gm-buildings') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
+      (map.getSource('gm-roads') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
+    }
     gmStats.textContent = `Zoom in to load the mesh for where you're looking.${cityTotalsText()}`;
+    return;
+  }
+  if (tilesOn) {
+    window.setTimeout(() => {
+      if (!gmOn) return;
+      let b = 0, r = 0;
+      try {
+        b = map.queryRenderedFeatures({ layers: ['t-gm-buildings'] }).length;
+        r = map.queryRenderedFeatures({ layers: ['t-gm-roads'] }).length;
+      } catch { /* layers not ready yet */ }
+      gmStats.innerHTML =
+        `In view: <b>${b} buildings</b>, <b>${r} road segments</b> (baked tiles).` +
+        cityTotalsText() +
+        ` The PySpark pipeline feeds these layers to GTA Fredericton (scripts/extract_game_mesh.py).`;
+    }, 800);
     return;
   }
   gmLoading = true;
@@ -512,6 +604,7 @@ gmBtn.addEventListener('click', async () => {
   map.setLayoutProperty('gm-roads', 'visibility', gmOn ? 'visible' : 'none');
   map.setLayoutProperty('gm-buildings', 'visibility', gmOn ? 'visible' : 'none');
   gmStats.hidden = !gmOn;
+  syncTilesVisibility();
   if (gmOn) {
     stopTour();
     gmStats.textContent = 'Loading the mesh from GeoNB…';
@@ -655,6 +748,7 @@ let wetlandsOn = false;
 
 let overlayToken = 0;
 async function refreshOverlays() {
+  if (tilesOn && TILES_HAS_CONTOURS) return;
   const token = ++overlayToken;
   if (contoursOn) {
     if (map.getZoom() >= 12.5) {
@@ -684,11 +778,52 @@ document.getElementById('contours-toggle')?.addEventListener('change', (e) => {
   contoursOn = (e.target as HTMLInputElement).checked;
   map.setLayoutProperty('contours-line', 'visibility', contoursOn ? 'visible' : 'none');
   map.setLayoutProperty('contours-label', 'visibility', contoursOn ? 'visible' : 'none');
+  syncTilesVisibility();
   if (contoursOn) refreshOverlays();
 });
 document.getElementById('wetlands-toggle')?.addEventListener('change', (e) => {
   wetlandsOn = (e.target as HTMLInputElement).checked;
   map.setLayoutProperty('wetlands-fill', 'visibility', wetlandsOn ? 'visible' : 'none');
   map.setLayoutProperty('wetlands-line', 'visibility', wetlandsOn ? 'visible' : 'none');
+  syncTilesVisibility();
   if (wetlandsOn) refreshOverlays();
 });
+
+// ---------- Tiles mode sync ----------
+// tilesOn flips the heavy layers between the baked PMTiles variants (t-*)
+// and the live ArcGIS GeoJSON variants. Toggle flags stay the single source
+// of truth; this function just routes visibility to the active variant set.
+function vis(id: string, on: boolean) {
+  try { map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); } catch { /* layer may not exist yet */ }
+}
+function syncTilesVisibility() {
+  vis('buildings-3d', buildingsOn && !tilesOn);
+  vis('t-buildings-3d', buildingsOn && tilesOn);
+  vis('gm-buildings', gmOn && !tilesOn);
+  vis('t-gm-buildings', gmOn && tilesOn);
+  vis('gm-roads', gmOn && !tilesOn);
+  vis('t-gm-roads', gmOn && tilesOn);
+  vis('contours-line', contoursOn && !(tilesOn && TILES_HAS_CONTOURS));
+  vis('t-contours-line', contoursOn && tilesOn && TILES_HAS_CONTOURS);
+  vis('contours-label', contoursOn && !(tilesOn && TILES_HAS_CONTOURS));
+  vis('t-contours-label', contoursOn && tilesOn && TILES_HAS_CONTOURS);
+  vis('wetlands-fill', wetlandsOn && !tilesOn);
+  vis('t-wetlands-fill', wetlandsOn && tilesOn);
+  vis('wetlands-line', wetlandsOn && !tilesOn);
+  vis('t-wetlands-line', wetlandsOn && tilesOn);
+}
+async function probeTiles() {
+  try {
+    const p = new PMTiles(TILES_URL);
+    const header = await Promise.race([
+      p.getHeader(),
+      new Promise<null>((res) => setTimeout(() => res(null), 6000)),
+    ]);
+    if (header) {
+      tilesOn = true;
+      syncTilesVisibility();
+      if (gmOn) loadGmViewport();
+    }
+  } catch { /* archive unreachable: live ArcGIS path stays active */ }
+}
+map.on('load', probeTiles);

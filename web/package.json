@@ -17,6 +17,7 @@
     "vite": "^8.3.0"
   },
   "dependencies": {
-    "maplibre-gl": "^6.14.0"
+    "maplibre-gl": "^6.14.0",
+    "pmtiles": "^4.5.0"
   }
 }
