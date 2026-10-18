@@ -11,3 +11,4 @@ data/downloads/
 # Full-city game exports are tens of MB — generated locally, stats committed
 data/game-exports/fredericton/buildings.geojson
 data/game-exports/fredericton/roads.geojson
+data/game-exports/fredericton/wetlands.geojson

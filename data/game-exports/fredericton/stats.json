@@ -1,18 +1,19 @@
 {
-  "bbox": [
-    -66.786685,
-    45.846739,
-    -66.51218,
-    46.050516
-  ],
-  "layers": {
-    "buildings": 30447,
-    "roads": 3627
-  },
-  "municipality": "The City of Fredericton",
-  "lidar_tiles": 414,
-  "buildings_height_m": {
-    "max": 41.4,
-    "mean": 6.2
-  }
+ "bbox": [
+  -66.786685,
+  45.846739,
+  -66.51218,
+  46.050516
+ ],
+ "layers": {
+  "buildings": 30447,
+  "roads": 3627,
+  "wetlands": 293
+ },
+ "municipality": "The City of Fredericton",
+ "lidar_tiles": 414,
+ "buildings_height_m": {
+  "max": 41.4,
+  "mean": 6.2
+ }
 }
