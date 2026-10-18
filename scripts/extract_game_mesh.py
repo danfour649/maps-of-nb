@@ -127,37 +127,45 @@ def feature_anchor(geom):
 def grid_query_all(service, layer, fields, order_field, bbox, rings, grid=3) -> list:
     """Envelope-grid GET extraction + client-side polygon clip + dedupe.
     POSTing a 3,485-point polygon filter makes GeoNB truncate responses;
-    small GET envelope pages have been reliable, so tile the bbox instead."""
+    small GET envelope pages have been reliable, so tile the bbox instead.
+    Pages that keep failing (GeoNB 500s on some heavy contour pages) are
+    bisected recursively; only truly dead sub-pages are skipped, and the
+    skip count is printed."""
     import time as _time
     w, s_, e, n = bbox
-    seen, kept = set(), []
+    seen, kept, skipped = set(), [], [0]
+
+    def fetch_page(tile, offset, size, depth=0):
+        q = urllib.parse.urlencode({
+            "where": "1=1", "geometry": ",".join(str(x) for x in tile),
+            "geometryType": "esriGeometryEnvelope", "inSR": "4326", "outSR": "4326",
+            "outFields": fields + "," + order_field, "returnGeometry": "true",
+            "f": "geojson", "resultRecordCount": str(size),
+            "resultOffset": str(offset), "orderByFields": order_field,
+        })
+        try:
+            gj = fetch_json(f"{REST}/{service}/MapServer/{layer}/query?{q}")
+            if "error" in gj:
+                raise RuntimeError(str(gj["error"]))
+            return gj.get("features", [])
+        except Exception:
+            if depth >= 3 or size <= 16:
+                skipped[0] += size
+                print(f"  !! skipping dead page {service}/{layer} offset {offset} size {size}")
+                return []
+            step = max(1, size // 4)
+            out = []
+            for sub in range(offset, offset + size, step):
+                out += fetch_page(tile, sub, min(step, offset + size - sub), depth + 1)
+            return out
+
     for i in range(grid):
         for j in range(grid):
             tile = (w + (e - w) * i / grid, s_ + (n - s_) * j / grid,
                     w + (e - w) * (i + 1) / grid, s_ + (n - s_) * (j + 1) / grid)
             offset = 0
             while True:
-                q = urllib.parse.urlencode({
-                    "where": "1=1", "geometry": ",".join(str(x) for x in tile),
-                    "geometryType": "esriGeometryEnvelope", "inSR": "4326", "outSR": "4326",
-                    "outFields": fields + "," + order_field, "returnGeometry": "true",
-                    "f": "geojson", "resultRecordCount": "500",
-                    "resultOffset": str(offset), "orderByFields": order_field,
-                })
-                try:
-                    gj = fetch_json(f"{REST}/{service}/MapServer/{layer}/query?{q}")
-                except RuntimeError:
-                    # Heavy layers (contours) can 500 on big pages server-side;
-                    # retry this page at a quarter of the page size.
-                    q2 = q.replace("resultRecordCount=500", "resultRecordCount=125")
-                    if q2 == q:
-                        raise
-                    gj = fetch_json(f"{REST}/{service}/MapServer/{layer}/query?{q2}")
-                    batch_override = 125
-                if "error" in gj:
-                    raise RuntimeError(f"{service}/{layer}: {gj['error']}")
-                batch = gj.get("features", [])
-                page_size = locals().get("batch_override", 500)
+                batch = fetch_page(tile, offset, 500)
                 for f in batch:
                     key = f["properties"].get(order_field)
                     if key in seen:
@@ -166,11 +174,14 @@ def grid_query_all(service, layer, fields, order_field, bbox, rings, grid=3) -> 
                     anchor = feature_anchor(f["geometry"])
                     if anchor and point_in_rings(anchor[0], anchor[1], rings):
                         kept.append(f)
-                if len(batch) < page_size:
+                if len(batch) < 500:
                     break
-                offset += page_size
+                offset += 500
             _time.sleep(0.6)
+    if skipped[0]:
+        print(f"  !! {service}/{layer}: {skipped[0]} records skipped (dead pages)")
     return kept
+
 
 def fetch_boundary(name: str) -> dict:
     svc, layer = BOUNDARY_SERVICE
@@ -188,9 +199,11 @@ def bbox_of(geojson) -> tuple:
     xs, ys = [], []
     def walk(c):
         if isinstance(c[0], (int, float)):
-            xs.append(c[0]); ys.append(c[1])
+            xs.append(c[0])
+            ys.append(c[1])
         else:
-            for x in c: walk(x)
+            for x in c:
+                walk(x)
     for f in geojson["features"]:
         walk(f["geometry"]["coordinates"])
     return (min(xs), min(ys), max(xs), max(ys))

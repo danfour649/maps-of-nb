@@ -1,5 +1,7 @@
 # maps-of-nb
 
+[![CI](https://github.com/danfour649/maps-of-nb/actions/workflows/ci.yml/badge.svg)](https://github.com/danfour649/maps-of-nb/actions/workflows/ci.yml)
+
 New Brunswick open geospatial data, organized for actual use: a catalogue of the
 province's best open map data, small pipelines that pull it down and clean it up,
 and analyses built on top of it.
@@ -32,18 +34,48 @@ what it's good for.
 | # | Source | What it is |
 |---|-------|------------|
 | 001 | [GeoNB orthophotos](data-sources/001-geonb-orthophotos.md) | Aerial imagery of NB — latest contribution 13,000 km² at 0.15 m, flown summer 2025 |
+| 002 | [GeoNB wetlands](data-sources/002-geonb-wetlands.md) | Regulated wetland polygons — game surface typing (soft/slow ground) |
+| 003 | [GeoNB contours](data-sources/003-geonb-contours.md) | 10 m / 50 m elevation contours — slope/QA overlay (not a terrain source) |
 
-More to come: LiDAR / elevation, the NB road network, civic addresses, and the
-Digital Topographic Database.
+Also in active use via GeoNB's ArcGIS services: LiDAR-derived building
+footprints with measured heights, the provincial road network (NBRN) with
+names/lanes/speed limits, the official municipal boundaries, and the LiDAR
+tile index. More catalogue entries to come: civic addresses, parcels, DTDB.
 
 ## Layout
 
 - `data-sources/` — the catalogue, one markdown file per source
-- `scripts/` — small tools for querying and pulling the services
-- `web/` — the Maps of NB viewer site (Vite + MapLibre, deployed on Vercel):
-  Fredericton on GeoNB's own imagery and topo basemaps, with an
-  imagery-year overlay. Deliberately not Next.js.
-- `analyses/` — notebooks and write-ups built on the data (coming)
+- `scripts/` — tools for querying/pulling the services, the game-mesh
+  extractor, the OSM comparison and the PMTiles baker (stdlib-only except
+  the baker — see `tools/requirements-bake.txt`)
+- `pipelines/` — the planned PySpark stage that turns the raw exports into
+  game-ready data (see `pipelines/README.md`)
+- `web/` — the Maps of NB viewer site (Vite + MapLibre + TypeScript,
+  deployed on Vercel): Fredericton on GeoNB's own imagery and topo
+  basemaps, baked vector tiles with a live-ArcGIS fallback, an OSM
+  comparison overlay and a game-mesh explorer. Deliberately not Next.js.
+- `tests/` — Python test suite (pytest) for the scripts and the bake
+- `docs/` — the GTA Fredericton map plan and the OSM-vs-GeoNB overlap study
+
+## Development
+
+```sh
+# Python (extractor/compare are stdlib-only; the baker needs its venv)
+python3 -m pytest tests/ -q            # or tools/.venv/bin/python -m pytest
+tools/setup_bake_env.sh                # one-time: creates tools/.venv
+
+# Web viewer
+cd web
+npm ci
+npm test                               # build + build-output checks + unit tests
+npm run test:e2e                       # headless render test (Playwright)
+```
+
+CI (GitHub Actions, `.github/workflows/ci.yml`) runs the Python suite with
+coverage, ruff, the web build + unit tests and the render E2E on every PR.
+The practices behind this are written down in
+[docs/maintenance.md](docs/maintenance.md); contributions follow
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## A note on licensing
 
