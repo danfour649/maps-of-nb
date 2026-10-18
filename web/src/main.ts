@@ -40,6 +40,7 @@ const style: maplibregl.StyleSpecification = {
     },
     'geonb-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     'gm-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    'city-boundary': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     'terrarium-dem': {
       type: 'raster-dem', tileSize: 256, maxzoom: 15,
       tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
@@ -68,6 +69,14 @@ const style: maplibregl.StyleSpecification = {
           0, '#7fa6bd', 8, '#c9a86a', 18, '#d96f3c', 30, '#b83a2a',
         ],
       },
+    },
+    {
+      id: 'boundary-fill', type: 'fill', source: 'city-boundary',
+      paint: { 'fill-color': '#7fd0ff', 'fill-opacity': 0.045 },
+    },
+    {
+      id: 'boundary-line', type: 'line', source: 'city-boundary',
+      paint: { 'line-color': '#7fd0ff', 'line-width': 1.6, 'line-dasharray': [2, 1.2], 'line-opacity': 0.85 },
     },
     { id: 'gm-bg', type: 'background', layout: { visibility: 'none' }, paint: { 'background-color': '#0b0f14' } },
     {
@@ -130,6 +139,11 @@ document.getElementById('year-toggle')?.addEventListener('change', (e) => {
 
 document.querySelectorAll<HTMLButtonElement>('#views button').forEach((btn) => {
   btn.addEventListener('click', () => {
+    if (btn.dataset.view === 'city' && cityBounds) {
+      stopTour();
+      map.fitBounds(cityBounds, { padding: 30, duration: 1600 });
+      return;
+    }
     const v = VIEWS[btn.dataset.view!];
     if (v) { stopTour(); map.flyTo({ center: v.center, zoom: v.zoom, pitch: 0, duration: 1600 }); }
   });
@@ -256,18 +270,62 @@ function startTour() {
 tourBtn.addEventListener('click', () => (touring ? stopTour() : startTour()));
 map.on('mousedown', () => { if (touring) stopTour(); });
 
-// ---------- Game mesh explorer (the GTA Fredericton pilot tile) ----------
-// Same export layers scripts/extract_game_mesh.py produces in batch:
-// buildings + roads for one downtown tile, fetched live from GeoNB.
-const GM_BBOX = '-66.652,45.955,-66.628,45.970';
+// ---------- City boundary (official, GeoNB_ELG_MunicipalAreas2 Jan 2023) ----------
+let cityTotals: { buildings: number; roads: number } | null = null;
+async function loadBoundary() {
+  try {
+    const q = new URLSearchParams({
+      where: "Name='The City of Fredericton'", outFields: 'Name,Type',
+      returnGeometry: 'true', outSR: '4326', f: 'geojson', geometryPrecision: '5',
+    });
+    const resp = await fetch(`${ARCGIS}/GeoNB_ELG_MunicipalAreas2/MapServer/4/query?${q}`);
+    const gj = await resp.json();
+    (map.getSource('city-boundary') as maplibregl.GeoJSONSource).setData(gj);
+    // "Whole city" fits the real boundary, not a guessed bbox.
+    const coords: number[][] = [];
+    const walk = (c: unknown) => {
+      if (Array.isArray(c) && typeof c[0] === 'number') coords.push(c as number[]);
+      else if (Array.isArray(c)) c.forEach(walk);
+    };
+    walk(gj.features?.[0]?.geometry?.coordinates);
+    if (coords.length) {
+      const xs = coords.map((c) => c[0]); const ys = coords.map((c) => c[1]);
+      cityBounds = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]];
+    }
+    // Citywide totals (POST — the polygon is too large for a GET URL).
+    try {
+      const rings = gj.features[0].geometry.coordinates;
+      const poly = JSON.stringify({ rings, spatialReference: { wkid: 4326 } });
+      const count = async (service: string, layer: number) => {
+        const body = new URLSearchParams({
+          where: '1=1', geometry: poly, geometryType: 'esriGeometryPolygon',
+          inSR: '4326', spatialRel: 'esriSpatialRelIntersects', returnCountOnly: 'true', f: 'json',
+        });
+        const r = await fetch(`${ARCGIS}/${service}/MapServer/${layer}/query`, { method: 'POST', body });
+        const j = await r.json();
+        return typeof j.count === 'number' ? j.count : null;
+      };
+      const [b, r] = await Promise.all([
+        count('GeoNB_SNB_Buildings', 0), count('GeoNB_Basemap_NBRN', 1),
+      ]);
+      if (b !== null && r !== null) cityTotals = { buildings: b, roads: r };
+    } catch { /* totals are decorative; the mesh does not depend on them */ }
+  } catch { /* boundary is decorative; the map works without it */ }
+}
+let cityBounds: [[number, number], [number, number]] | null = null;
+map.on('load', loadBoundary);
+
+// ---------- Game mesh explorer (GTA Fredericton mesh, city-wide) ----------
+// Same export layers scripts/extract_game_mesh.py produces in batch
+// (buildings + roads), loaded per-viewport inside the city boundary.
 const gmBtn = document.getElementById('gm-btn') as HTMLButtonElement;
 const gmStats = document.getElementById('gm-stats')!;
 let gmOn = false;
-let gmLoaded = false;
+let gmLoading = false;
 
-async function gmFetch(service: string, layer: number, fields: string) {
+async function gmFetch(service: string, layer: number, fields: string, bbox: string) {
   const q = new URLSearchParams({
-    where: '1=1', geometry: GM_BBOX, geometryType: 'esriGeometryEnvelope',
+    where: '1=1', geometry: bbox, geometryType: 'esriGeometryEnvelope',
     inSR: '4326', outSR: '4326', outFields: fields, returnGeometry: 'true',
     f: 'geojson', resultRecordCount: '3000',
   });
@@ -275,23 +333,46 @@ async function gmFetch(service: string, layer: number, fields: string) {
   return resp.json();
 }
 
-async function loadGameMesh() {
-  const [b, r] = await Promise.all([
-    gmFetch('GeoNB_SNB_Buildings', 0, 'min_g_elev,max_b_elev'),
-    gmFetch('GeoNB_Basemap_NBRN', 1, 'Number_Of_Lanes,Route_Name_English_1'),
-  ]);
-  (map.getSource('gm-buildings') as maplibregl.GeoJSONSource).setData(b);
-  (map.getSource('gm-roads') as maplibregl.GeoJSONSource).setData(r);
-  const heights = (b.features ?? []).map(
-    (f: any) => ((f.properties?.max_b_elev ?? 0) as number) - ((f.properties?.min_g_elev ?? 0) as number),
-  );
-  const tallest = heights.length ? Math.max(...heights).toFixed(1) : '0';
-  gmStats.innerHTML =
-    `Pilot tile — downtown Fredericton: <b>${b.features?.length ?? 0} buildings</b>, ` +
-    `<b>${r.features?.length ?? 0} road segments</b>, tallest building ${tallest} m. ` +
-    `This is the export the PySpark pipeline feeds to GTA Fredericton (see scripts/extract_game_mesh.py).`;
-  gmLoaded = true;
+function cityTotalsText() {
+  return cityTotals
+    ? ` Citywide inside the official boundary: ${cityTotals.buildings.toLocaleString()} buildings, ${cityTotals.roads.toLocaleString()} road segments.`
+    : '';
 }
+
+async function loadGmViewport() {
+  if (!gmOn || gmLoading) return;
+  if (map.getZoom() < 13) {
+    (map.getSource('gm-buildings') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
+    (map.getSource('gm-roads') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
+    gmStats.textContent = `Zoom in to load the mesh for where you're looking.${cityTotalsText()}`;
+    return;
+  }
+  gmLoading = true;
+  try {
+    const b = map.getBounds();
+    const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
+    const [bj, rj] = await Promise.all([
+      gmFetch('GeoNB_SNB_Buildings', 0, 'min_g_elev,max_b_elev', bbox),
+      gmFetch('GeoNB_Basemap_NBRN', 1, 'Number_Of_Lanes,Route_Name_English_1', bbox),
+    ]);
+    (map.getSource('gm-buildings') as maplibregl.GeoJSONSource).setData(bj);
+    (map.getSource('gm-roads') as maplibregl.GeoJSONSource).setData(rj);
+    gmStats.innerHTML =
+      `In view: <b>${bj.features?.length ?? 0} buildings</b>, <b>${rj.features?.length ?? 0} road segments</b>.` +
+      cityTotalsText() +
+      ` The PySpark pipeline feeds these layers to GTA Fredericton (scripts/extract_game_mesh.py).`;
+  } catch {
+    gmStats.textContent = 'GeoNB did not answer that one — pan or zoom to retry.';
+  } finally {
+    gmLoading = false;
+  }
+}
+let gmDebounce: ReturnType<typeof setTimeout> | undefined;
+map.on('moveend', () => {
+  if (!gmOn) return;
+  clearTimeout(gmDebounce);
+  gmDebounce = setTimeout(loadGmViewport, 350);
+});
 
 gmBtn.addEventListener('click', async () => {
   gmOn = !gmOn;
@@ -310,8 +391,9 @@ gmBtn.addEventListener('click', async () => {
   gmStats.hidden = !gmOn;
   if (gmOn) {
     stopTour();
-    if (!gmLoaded) { gmStats.textContent = 'Loading the pilot tile from GeoNB…'; await loadGameMesh(); }
+    gmStats.textContent = 'Loading the mesh from GeoNB…';
     map.flyTo({ center: [-66.6400, 45.9625], zoom: 15.2, pitch: 60, bearing: -25, duration: 1800 });
+    setTimeout(loadGmViewport, 2000);
   } else {
     map.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
   }
