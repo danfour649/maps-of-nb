@@ -9,7 +9,7 @@ const exportTile = (service: string, transparent: boolean) =>
 
 const VIEWS: Record<string, { center: [number, number]; zoom: number }> = {
   downtown: { center: [-66.6431, 45.9636], zoom: 15.5 },
-  unb: { center: [-66.7095, 45.9475], zoom: 14.5 },
+  unb: { center: [-66.6450, 45.9445], zoom: 14.5 },
   northside: { center: [-66.6285, 45.9789], zoom: 14.5 },
   city: { center: [-66.66, 45.96], zoom: 12 },
 };
@@ -175,12 +175,12 @@ const STOPS: Stop[] = [
   {
     name: 'Bill Thorpe Walking Bridge',
     body: 'The old railway bridge, now the spine of the trail system and the best sunset walk in the city. Trains crossed here until the 1990s; now it’s strollers, bikes, and dogs.',
-    center: [-66.6275, 45.9578], zoom: 15.5, pitch: 45, bearing: 70,
+    center: [-66.6298, 45.9560], zoom: 15.5, pitch: 45, bearing: 70,
   },
   {
     name: 'University of New Brunswick',
     body: 'Founded 1785 — one of the oldest public universities in North America, up the hill where it can keep an eye on the legislature. This is the last stop; the map is yours again.',
-    center: [-66.7050, 45.9480], zoom: 15, pitch: 50, bearing: -25,
+    center: [-66.6413, 45.9482], zoom: 15.5, pitch: 50, bearing: -25,
   },
 ];
 
