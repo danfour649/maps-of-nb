@@ -41,6 +41,10 @@ const style: maplibregl.StyleSpecification = {
     'geonb-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     'gm-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     'city-boundary': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    'cmp-osm-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    'cmp-osm-roads': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    'cmp-geonb-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    'cmp-geonb-roads': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     'terrarium-dem': {
       type: 'raster-dem', tileSize: 256, maxzoom: 15,
       tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
@@ -77,6 +81,22 @@ const style: maplibregl.StyleSpecification = {
     {
       id: 'boundary-line', type: 'line', source: 'city-boundary',
       paint: { 'line-color': '#7fd0ff', 'line-width': 1.6, 'line-dasharray': [2, 1.2], 'line-opacity': 0.85 },
+    },
+    {
+      id: 'cmp-geonb-roads', type: 'line', source: 'cmp-geonb-roads', layout: { visibility: 'none' },
+      paint: { 'line-color': '#4fc3f7', 'line-width': 2.5 },
+    },
+    {
+      id: 'cmp-osm-roads', type: 'line', source: 'cmp-osm-roads', layout: { visibility: 'none' },
+      paint: { 'line-color': '#ff9f43', 'line-width': 2, 'line-dasharray': [1.6, 1] },
+    },
+    {
+      id: 'cmp-geonb-buildings', type: 'line', source: 'cmp-geonb-buildings', layout: { visibility: 'none' },
+      paint: { 'line-color': '#4fc3f7', 'line-width': 1.8 },
+    },
+    {
+      id: 'cmp-osm-buildings', type: 'fill', source: 'cmp-osm-buildings', layout: { visibility: 'none' },
+      paint: { 'fill-color': '#ff9f43', 'fill-opacity': 0.4 },
     },
     { id: 'gm-bg', type: 'background', layout: { visibility: 'none' }, paint: { 'background-color': '#0b0f14' } },
     {
@@ -414,4 +434,108 @@ document.getElementById('gm-terrain')!.addEventListener('change', (e) => {
   const on = (e.target as HTMLInputElement).checked && gmOn;
   map.setLayoutProperty('gm-hillshade', 'visibility', on ? 'visible' : 'none');
   map.setTerrain(on ? { source: 'terrarium-dem', exaggeration: 1.3 } : null);
+});
+
+// ---------- OSM comparison overlay ----------
+// GeoNB (blue) vs OpenStreetMap (orange) for the current viewport, with a
+// centroid-match overlap figure — the numbers behind docs/osm-geonb-overlap.md.
+const cmpBtn = document.getElementById('cmp-btn') as HTMLButtonElement;
+const cmpStats = document.getElementById('cmp-stats')!;
+let cmpOn = false;
+let cmpLoading = false;
+
+function osmToGeojson(elements: any[], want: 'building' | 'road') {
+  const feats: any[] = [];
+  for (const el of elements ?? []) {
+    const g = el.geometry;
+    if (!g || g.length < 2) continue;
+    const coords = g.map((p: any) => [p.lon, p.lat]);
+    feats.push({
+      type: 'Feature',
+      geometry: want === 'building'
+        ? { type: 'Polygon', coordinates: [[...coords, coords[0]]] }
+        : { type: 'LineString', coordinates: coords },
+      properties: el.tags ?? {},
+    });
+  }
+  return { type: 'FeatureCollection', features: feats };
+}
+
+function centroids(fc: any): [number, number][] {
+  return (fc.features ?? []).map((f: any) => {
+    const ring = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0] : f.geometry.coordinates;
+    let x = 0, y = 0;
+    for (const p of ring) { x += p[0]; y += p[1]; }
+    return [x / ring.length, y / ring.length] as [number, number];
+  });
+}
+
+function matchPct(src: [number, number][], dst: [number, number][], radiusM: number): number {
+  if (!src.length || !dst.length) return 0;
+  const cap = 2500;
+  let hits = 0;
+  const n = Math.min(src.length, cap);
+  for (const s of src.slice(0, cap)) {
+    for (const t of dst.slice(0, cap)) {
+      const dx = (s[0] - t[0]) * 78847, dy = (s[1] - t[1]) * 110540;
+      if (dx * dx + dy * dy <= radiusM * radiusM) { hits++; break; }
+    }
+  }
+  return Math.round((100 * hits) / n);
+}
+
+async function loadCompare() {
+  if (!cmpOn || cmpLoading) return;
+  if (map.getZoom() < 13) {
+    cmpStats.textContent = 'Zoom in to compare the two sources where you are looking.';
+    return;
+  }
+  cmpLoading = true;
+  cmpStats.textContent = 'Fetching GeoNB and OpenStreetMap for this view…';
+  try {
+    const b = map.getBounds();
+    const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
+    const [gb, gr] = await Promise.all([
+      gmFetch('GeoNB_SNB_Buildings', 0, 'min_g_elev,max_b_elev', bbox),
+      gmFetch('GeoNB_Basemap_NBRN', 1, 'Number_Of_Lanes,Formatted_Street_Name', bbox),
+    ]);
+    const q = `[out:json][timeout:60];(way["building"](${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()});way["highway"](${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}););out geom;`;
+    const oresp = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST', body: 'data=' + encodeURIComponent(q),
+    });
+    if (!oresp.ok) throw new Error('overpass busy');
+    const oj = await oresp.json();
+    const ob = osmToGeojson(oj.elements.filter((e: any) => e.tags?.building), 'building');
+    const oroads = osmToGeojson(oj.elements.filter((e: any) => e.tags?.highway), 'road');
+    (map.getSource('cmp-geonb-buildings') as maplibregl.GeoJSONSource).setData(gb);
+    (map.getSource('cmp-geonb-roads') as maplibregl.GeoJSONSource).setData(gr);
+    (map.getSource('cmp-osm-buildings') as maplibregl.GeoJSONSource).setData(ob);
+    (map.getSource('cmp-osm-roads') as maplibregl.GeoJSONSource).setData(oroads);
+    const g2o = matchPct(centroids(gb), centroids(ob), 15);
+    const o2g = matchPct(centroids(ob), centroids(gb), 15);
+    cmpStats.innerHTML =
+      `In view — buildings: <b>GeoNB ${gb.features?.length ?? 0}</b> vs <b>OSM ${ob.features.length}</b>; ` +
+      `roads: GeoNB ${gr.features?.length ?? 0} segments vs OSM ${oroads.features.length} ways.<br>` +
+      `Building overlap within 15 m: <b>${g2o}%</b> of GeoNB matched in OSM, <b>${o2g}%</b> the other way.`;
+  } catch {
+    cmpStats.textContent = 'One of the sources did not answer (Overpass is often at capacity) — pan or zoom to retry.';
+  } finally {
+    cmpLoading = false;
+  }
+}
+let cmpDebounce: ReturnType<typeof setTimeout> | undefined;
+map.on('moveend', () => {
+  if (!cmpOn) return;
+  clearTimeout(cmpDebounce);
+  cmpDebounce = setTimeout(loadCompare, 400);
+});
+
+cmpBtn.addEventListener('click', () => {
+  cmpOn = !cmpOn;
+  cmpBtn.classList.toggle('on', cmpOn);
+  cmpBtn.textContent = cmpOn ? '🗺️ Hide OpenStreetMap overlay' : '🗺️ Overlay OpenStreetMap';
+  for (const id of ['cmp-geonb-roads', 'cmp-osm-roads', 'cmp-geonb-buildings', 'cmp-osm-buildings'])
+    map.setLayoutProperty(id, 'visibility', cmpOn ? 'visible' : 'none');
+  cmpStats.hidden = !cmpOn;
+  if (cmpOn) loadCompare();
 });

@@ -28,7 +28,7 @@ PAGE = 1000
 
 LAYERS = {
     "buildings": ("GeoNB_SNB_Buildings", 0, "min_g_elev,max_b_elev", "OBJECTID_1"),
-    "roads": ("GeoNB_Basemap_NBRN", 1, "Number_Of_Lanes,Route_Name_English_1,Road_Segment_ID", "OBJECTID"),
+    "roads": ("GeoNB_Basemap_NBRN", 1, "Number_Of_Lanes,Route_Name_English_1,Formatted_Street_Name,Func_Road_Class,Speed_Restrictions_Both,Dir_of_Traffic_Flow,Road_Segment_ID", "OBJECTID"),
 }
 BOUNDARY_SERVICE = ("GeoNB_ELG_MunicipalAreas2", 4)
 
