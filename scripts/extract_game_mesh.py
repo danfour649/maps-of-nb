@@ -33,35 +33,30 @@ LAYERS = {
 BOUNDARY_SERVICE = ("GeoNB_ELG_MunicipalAreas2", 4)
 
 
-def fetch_json(url: str, attempts: int = 7) -> dict:
-    # GeoNB truncates responses under burst load; back off properly rather
-    # than hammering (the catalogue is a shared public service).
-    import time as _time
-    last = None
-    for i in range(attempts):
-        try:
-            req = urllib.request.Request(url, headers=UA)
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                return json.load(resp)
-        except Exception as e:
-            last = e
-            if i < attempts - 1:
-                _time.sleep(min(3 * 2 ** i, 45))
-    raise RuntimeError(f"fetch failed after {attempts} attempts: {url[:80]}") from last
+def _curl_json(args: list) -> dict:
+    # NOTE: urllib reads of GeoNB's larger chunked responses kept truncating
+    # mid-stream in this environment (IncompleteRead) while curl pulls the
+    # same URLs reliably — so all fetching goes through curl.
+    import subprocess
+    out = subprocess.run(
+        ["curl", "-sS", "--fail", "--retry", "3", "--max-time", "300",
+         "-H", f"User-Agent: {UA['User-Agent']}", *args],
+        capture_output=True, text=True, timeout=330)
+    if out.returncode != 0:
+        raise RuntimeError(f"curl failed ({out.returncode}): {out.stderr.strip()[:200]}")
+    return json.loads(out.stdout)
+
+
+def fetch_json(url: str) -> dict:
+    return _curl_json([url])
 
 
 def post_query(service: str, layer: int, params: dict) -> dict:
     url = f"{REST}/{service}/MapServer/{layer}/query"
-    data = urllib.parse.urlencode(params).encode()
-    last = None
-    for _ in range(4):
-        try:
-            req = urllib.request.Request(url, data=data, headers=UA)
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                return json.load(resp)
-        except Exception as e:
-            last = e
-    raise RuntimeError(f"POST query failed after 4 attempts: {service}/{layer}") from last
+    args = []
+    for k, v in params.items():
+        args += ["--data-urlencode", f"{k}={v}"]
+    return _curl_json([*args, url])
 
 
 def query_all(service, layer, fields, order_field, geometry, geometry_type) -> list:
