@@ -1,5 +1,6 @@
 import * as maplibregl from 'maplibre-gl';
 import { Protocol, PMTiles } from 'pmtiles';
+import { featKey, osmToGeojson, centroids, matchPct } from './geo';
 
 // Baked vector tiles (scripts/bake_tiles.py) served as a static archive.
 // When reachable, the heavy layers render from tiles; otherwise the viewer
@@ -279,13 +280,6 @@ type FColl = { type: 'FeatureCollection'; features: any[] };
 const cellCache = new Map<string, Map<string, any[]>>();
 const cellInflight = new Map<string, Promise<any[]>>();
 
-function featKey(f: any): string {
-  const p = f.properties ?? {};
-  const id = f.id ?? p.OBJECTID_1 ?? p.OBJECTID ?? p.Road_Segment_ID;
-  if (id !== undefined && id !== null) return 'id:' + id;
-  const c = f.geometry?.coordinates;
-  return 'g:' + JSON.stringify(f.geometry?.type) + ':' + JSON.stringify(c?.[0]?.[0] ?? c);
-}
 
 async function fetchCellFeatures(
   service: string, layer: number, fields: string, orderField: string,
@@ -640,45 +634,8 @@ const cmpStats = document.getElementById('cmp-stats')!;
 let cmpOn = false;
 let cmpLoading = false;
 
-function osmToGeojson(elements: any[], want: 'building' | 'road') {
-  const feats: any[] = [];
-  for (const el of elements ?? []) {
-    const g = el.geometry;
-    if (!g || g.length < 2) continue;
-    const coords = g.map((p: any) => [p.lon, p.lat]);
-    feats.push({
-      type: 'Feature',
-      geometry: want === 'building'
-        ? { type: 'Polygon', coordinates: [[...coords, coords[0]]] }
-        : { type: 'LineString', coordinates: coords },
-      properties: el.tags ?? {},
-    });
-  }
-  return { type: 'FeatureCollection', features: feats };
-}
 
-function centroids(fc: any): [number, number][] {
-  return (fc.features ?? []).map((f: any) => {
-    const ring = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0] : f.geometry.coordinates;
-    let x = 0, y = 0;
-    for (const p of ring) { x += p[0]; y += p[1]; }
-    return [x / ring.length, y / ring.length] as [number, number];
-  });
-}
 
-function matchPct(src: [number, number][], dst: [number, number][], radiusM: number): number {
-  if (!src.length || !dst.length) return 0;
-  const cap = 2500;
-  let hits = 0;
-  const n = Math.min(src.length, cap);
-  for (const s of src.slice(0, cap)) {
-    for (const t of dst.slice(0, cap)) {
-      const dx = (s[0] - t[0]) * 78847, dy = (s[1] - t[1]) * 110540;
-      if (dx * dx + dy * dy <= radiusM * radiusM) { hits++; break; }
-    }
-  }
-  return Math.round((100 * hits) / n);
-}
 
 let cmpToken = 0;
 async function loadCompare() {
