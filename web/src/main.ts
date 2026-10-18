@@ -107,6 +107,8 @@ const map = new maplibregl.Map({
   attributionControl: { compact: true },
 });
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
+// Test hook: integration tests drive the live map instance.
+(window as unknown as { __map?: maplibregl.Map }).__map = map;
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
 
 const BASES = ['geonb-imagery', 'geonb-topo', 'esri-imagery'] as const;
