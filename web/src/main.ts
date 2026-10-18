@@ -9,7 +9,7 @@ import { featKey, osmToGeojson, centroids, matchPct } from './geo';
 // Vercel): GitHub release assets don't send CORS headers, so the release
 // copy (tag tiles-v1) is the human/game download, not the viewer's source.
 const TILES_URL = '/fredericton.pmtiles';
-const TILES_HAS_CONTOURS = false; // flips true when the v2 bake adds the contours layer
+const TILES_HAS_CONTOURS = true; // flips true when the v2 bake adds the contours layer
 let tilesOn = false;
 {
   const proto = new Protocol();
