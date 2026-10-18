@@ -84,6 +84,27 @@ def main() -> None:
         stats["layers"][name] = len(feats)
         print(f"{name}: {len(feats)} features -> {out}/{name}.geojson")
 
+    # Elevation: LiDAR tile manifest for this bbox (the DTM stage of the
+    # pipeline — replaces the game's ad hoc 30 m DEM from GTA PR #195 with
+    # GeoNB LiDAR, ~1 m DTM in the same heightmap contract). We write the
+    # manifest only; the LAZ pulls are big and cached separately.
+    import urllib.request as _ur
+    idx_q = urllib.parse.urlencode({
+        "where": "1=1", "geometry": ",".join(str(x) for x in bbox),
+        "geometryType": "esriGeometryEnvelope", "inSR": "4326", "outSR": "4326",
+        "outFields": "TILE_NAME,File_URL,year,PPM,VERT_DATUM", "returnGeometry": "false",
+        "f": "json", "resultRecordCount": "200",
+    })
+    # layer 11 = lidar_index_2024 (2025 index has no Fredericton coverage yet)
+    req = _ur.Request(f"{REST}/GeoNB_SNB_LidarIndex/MapServer/11/query?{idx_q}", headers=UA)
+    with _ur.urlopen(req, timeout=120) as resp:
+        idx = json.load(resp)
+    tiles = [f["attributes"] for f in idx.get("features", [])]
+    (out / "lidar_tiles.json").write_text(json.dumps(
+        {"vertical_datum": "CGVD2013", "tiles": tiles}, indent=2))
+    stats["lidar_tiles"] = len(tiles)
+    print(f"lidar: {len(tiles)} 1 km tiles in manifest -> {out}/lidar_tiles.json")
+
     buildings = json.loads((out / "buildings.geojson").read_text())["features"]
     heights = [f["properties"].get("max_b_elev", 0) - f["properties"].get("min_g_elev", 0) for f in buildings]
     if heights:

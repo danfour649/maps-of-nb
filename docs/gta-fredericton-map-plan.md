@@ -59,9 +59,23 @@ it unchanged (or with less patching, because the source data is cleaner).
    layer (props, missions, dressing) is untouched. Ship behind a flag, drive
    test, then make it the default.
 
-Terrain: the current 30 m DEM (GTA PR #195) stays until phase 3, when the
-LiDAR DTM can replace it at much higher fidelity through the same
-heightmap contract.
+## Elevation — not an afterthought
+
+The game's current terrain is itself an ad hoc open-data pull: GTA PR #195
+vendored a 30 m DEM (open elevation data) into
+`data/elevation/fredericton_dem.json` and re-based `terrain_height.gd` on it.
+It works, but 30 m cells are why streets float and buildings sit wrong on
+slopes.
+
+The pipeline replaces it properly, through the same heightmap contract:
+`GeoNB_SNB_LidarIndex` layer `lidar_index_2024` lists **nine 1 km LAZ tiles**
+covering the downtown pilot bbox (20 pulses/m², LAS 1.4, vertical datum
+CGVD2013), each with a direct download URL — the extractor writes them to
+`lidar_tiles.json`. Ground-classified returns rasterize to a ~1 m DTM;
+sampled onto the game's grid, that's a drop-in `fredericton_dem.json`
+successor at ~30x the resolution. The web explorer previews relief with
+public terrarium tiles (the same class of open data as PR #195); the game
+gets the LiDAR DTM.
 
 ## Order of work
 

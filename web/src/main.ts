@@ -40,6 +40,12 @@ const style: maplibregl.StyleSpecification = {
     },
     'geonb-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     'gm-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    'terrarium-dem': {
+      type: 'raster-dem', tileSize: 256, maxzoom: 15,
+      tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+      encoding: 'terrarium',
+      attribution: 'Terrain: Mapzen / open elevation data (preview — the game gets GeoNB LiDAR)',
+    },
     'gm-roads': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
   },
   layers: [
@@ -64,6 +70,11 @@ const style: maplibregl.StyleSpecification = {
       },
     },
     { id: 'gm-bg', type: 'background', layout: { visibility: 'none' }, paint: { 'background-color': '#0b0f14' } },
+    {
+      id: 'gm-hillshade', type: 'hillshade', source: 'terrarium-dem',
+      layout: { visibility: 'none' },
+      paint: { 'hillshade-shadow-color': '#000000', 'hillshade-exaggeration': 0.6, 'hillshade-highlight-color': '#3a4a5a' },
+    },
     {
       id: 'gm-roads', type: 'line', source: 'gm-roads', layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
       paint: {
@@ -287,6 +298,8 @@ gmBtn.addEventListener('click', async () => {
   const rasters = ['geonb-imagery', 'geonb-topo', 'esri-imagery', 'geonb-imagery-year'];
   for (const id of rasters) map.setLayoutProperty(id, 'visibility', gmOn ? 'none' : (id === 'geonb-imagery' ? 'visible' : 'none'));
   map.setLayoutProperty('gm-bg', 'visibility', gmOn ? 'visible' : 'none');
+  map.setLayoutProperty('gm-hillshade', 'visibility', gmOn ? 'visible' : 'none');
+  map.setTerrain(gmOn ? { source: 'terrarium-dem', exaggeration: 1.3 } : null);
   map.setLayoutProperty('gm-roads', 'visibility', gmOn ? 'visible' : 'none');
   map.setLayoutProperty('gm-buildings', 'visibility', gmOn ? 'visible' : 'none');
   gmStats.hidden = !gmOn;
