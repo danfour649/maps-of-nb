@@ -4,7 +4,7 @@ New Brunswick open geospatial data, organized for actual use: a catalogue of the
 province's best open map data, small pipelines that pull it down and clean it up,
 and analyses built on top of it.
 
-**Live viewer:** https://maps-of-nb-danfour649s-projects.vercel.app — Fredericton
+**Live viewer:** https://maps-of-nb.vercel.app — Fredericton
 on GeoNB's own imagery/topo basemaps (Vite + MapLibre; deliberately not Next.js).
 
 Most of New Brunswick's authoritative map data is already open — GeoNB has been
