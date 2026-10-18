@@ -1,0 +1,20 @@
+[project]
+name = "maps-of-nb"
+version = "0.1.0"
+description = "New Brunswick open geospatial data: catalogue, pipelines and analyses on GeoNB open data."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# The extractor and comparison tools are stdlib-only by design. The tile
+# baker's dependencies are pinned in tools/requirements-bake.txt.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]  # long URLs/strings in data-source code are clearer unwrapped

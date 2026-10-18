@@ -3,5 +3,5 @@
 set -e
 cd "$(dirname "$0")/.."
 python3 -m venv tools/.venv
-tools/.venv/bin/pip install pmtiles mapbox-vector-tile mercantile shapely
+tools/.venv/bin/pip install -r tools/requirements-bake.txt
 echo "bake env ready: tools/.venv"
