@@ -1,0 +1,17 @@
+{
+  "bbox": [
+    -66.652,
+    45.955,
+    -66.628,
+    45.97
+  ],
+  "layers": {
+    "buildings": 1227,
+    "roads": 219
+  },
+  "lidar_tiles": 9,
+  "buildings_height_m": {
+    "max": 41.4,
+    "mean": 8.9
+  }
+}
