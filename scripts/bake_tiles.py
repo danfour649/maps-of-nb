@@ -17,16 +17,15 @@ Usage (venv with the bake deps — see tools/setup_bake_env.sh):
 import argparse
 import gzip
 import json
-import math
 from pathlib import Path
 
+import mapbox_vector_tile
 import mercantile
 from pmtiles.tile import Compression, TileType, zxy_to_tileid
 from pmtiles.writer import Writer
-from shapely.geometry import box, mapping, shape
-from shapely.strtree import STRtree
+from shapely.geometry import box, shape
 from shapely.ops import transform as shp_transform
-import mapbox_vector_tile
+from shapely.strtree import STRtree
 
 EXTENT = 4096
 BUFFER_PX = 16
@@ -54,7 +53,6 @@ def _proj_fn(b):
 
 def bake(exports: Path, out_path: Path):
     datasets = {}
-    all_bounds = None
     for name, (fname, zmin, zmax, tol) in LAYERS.items():
         p = exports / fname
         if not p.exists():
