@@ -29,6 +29,7 @@ PAGE = 1000
 LAYERS = {
     "buildings": ("GeoNB_SNB_Buildings", 0, "min_g_elev,max_b_elev", "OBJECTID_1"),
     "wetlands": ("GeoNB_ENV_Wetlands", 2, "WETLAND_CLASS,STATUS,Hectares", "OBJECTID"),
+    "contours": ("GeoNB_SNB_Contours", 1, "Contour", "OBJECTID"),
     "roads": ("GeoNB_Basemap_NBRN", 1, "Number_Of_Lanes,Route_Name_English_1,Formatted_Street_Name,Func_Road_Class,Speed_Restrictions_Both,Dir_of_Traffic_Flow,Road_Segment_ID", "OBJECTID"),
 }
 BOUNDARY_SERVICE = ("GeoNB_ELG_MunicipalAreas2", 4)
@@ -143,10 +144,20 @@ def grid_query_all(service, layer, fields, order_field, bbox, rings, grid=3) -> 
                     "f": "geojson", "resultRecordCount": "500",
                     "resultOffset": str(offset), "orderByFields": order_field,
                 })
-                gj = fetch_json(f"{REST}/{service}/MapServer/{layer}/query?{q}")
+                try:
+                    gj = fetch_json(f"{REST}/{service}/MapServer/{layer}/query?{q}")
+                except RuntimeError:
+                    # Heavy layers (contours) can 500 on big pages server-side;
+                    # retry this page at a quarter of the page size.
+                    q2 = q.replace("resultRecordCount=500", "resultRecordCount=125")
+                    if q2 == q:
+                        raise
+                    gj = fetch_json(f"{REST}/{service}/MapServer/{layer}/query?{q2}")
+                    batch_override = 125
                 if "error" in gj:
                     raise RuntimeError(f"{service}/{layer}: {gj['error']}")
                 batch = gj.get("features", [])
+                page_size = locals().get("batch_override", 500)
                 for f in batch:
                     key = f["properties"].get(order_field)
                     if key in seen:
@@ -155,9 +166,9 @@ def grid_query_all(service, layer, fields, order_field, bbox, rings, grid=3) -> 
                     anchor = feature_anchor(f["geometry"])
                     if anchor and point_in_rings(anchor[0], anchor[1], rings):
                         kept.append(f)
-                if len(batch) < 500:
+                if len(batch) < page_size:
                     break
-                offset += 500
+                offset += page_size
             _time.sleep(0.6)
     return kept
 
@@ -190,7 +201,7 @@ def main() -> None:
     ap.add_argument("--bbox", help="W,S,E,N in EPSG:4326 (envelope mode)")
     ap.add_argument("--city", help='municipality Name, e.g. "The City of Fredericton" (boundary mode)')
     ap.add_argument("--out", default=None)
-    ap.add_argument("--only", default="", help="comma-separated subset of layers (buildings,roads,wetlands)")
+    ap.add_argument("--only", default="", help="comma-separated subset of layers (buildings,roads,wetlands,contours)")
     args = ap.parse_args()
 
     if args.city:
