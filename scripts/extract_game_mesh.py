@@ -189,6 +189,7 @@ def main() -> None:
     ap.add_argument("--bbox", help="W,S,E,N in EPSG:4326 (envelope mode)")
     ap.add_argument("--city", help='municipality Name, e.g. "The City of Fredericton" (boundary mode)')
     ap.add_argument("--out", default=None)
+    ap.add_argument("--only", default="", help="comma-separated subset of layers (buildings,roads)")
     args = ap.parse_args()
 
     if args.city:
@@ -229,7 +230,10 @@ def main() -> None:
         (out / "boundary.geojson").write_text(json.dumps(boundary))
         print(f"boundary: {args.city} -> {out}/boundary.geojson")
 
+    only = {x.strip() for x in args.only.split(",") if x.strip()}
     for name, (service, layer, fields, order_field) in LAYERS.items():
+        if only and name not in only:
+            continue
         if boundary:
             geom0 = boundary["features"][0]["geometry"]
             rings0 = geom0["coordinates"] if geom0["type"] == "Polygon" else geom0["coordinates"][0]
