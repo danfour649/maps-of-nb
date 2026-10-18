@@ -39,6 +39,8 @@ const style: maplibregl.StyleSpecification = {
       attribution: 'Imagery year © GeoNB',
     },
     'geonb-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    'gm-buildings': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    'gm-roads': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
   },
   layers: [
     { id: 'geonb-imagery', type: 'raster', source: 'geonb-imagery', layout: { visibility: 'visible' } },
@@ -58,6 +60,27 @@ const style: maplibregl.StyleSpecification = {
         'fill-extrusion-color': [
           'interpolate', ['linear'], ['-', ['get', 'max_b_elev'], ['get', 'min_g_elev']],
           0, '#7fa6bd', 8, '#c9a86a', 18, '#d96f3c', 30, '#b83a2a',
+        ],
+      },
+    },
+    { id: 'gm-bg', type: 'background', layout: { visibility: 'none' }, paint: { 'background-color': '#0b0f14' } },
+    {
+      id: 'gm-roads', type: 'line', source: 'gm-roads', layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': '#ffb454',
+        'line-width': ['interpolate', ['linear'], ['coalesce', ['get', 'Number_Of_Lanes'], 2], 1, 1.5, 2, 2.5, 4, 5, 6, 7],
+        'line-opacity': 0.95,
+      },
+    },
+    {
+      id: 'gm-buildings', type: 'fill-extrusion', source: 'gm-buildings', layout: { visibility: 'none' },
+      paint: {
+        'fill-extrusion-height': ['max', ['-', ['get', 'max_b_elev'], ['get', 'min_g_elev']], 0],
+        'fill-extrusion-base': 0,
+        'fill-extrusion-opacity': 0.92,
+        'fill-extrusion-color': [
+          'interpolate', ['linear'], ['-', ['get', 'max_b_elev'], ['get', 'min_g_elev']],
+          0, '#3d5a73', 8, '#8a6f4d', 18, '#c65a2e', 30, '#e03a1e',
         ],
       },
     },
@@ -219,3 +242,59 @@ function startTour() {
 
 tourBtn.addEventListener('click', () => (touring ? stopTour() : startTour()));
 map.on('mousedown', () => { if (touring) stopTour(); });
+
+// ---------- Game mesh explorer (the GTA Fredericton pilot tile) ----------
+// Same export layers scripts/extract_game_mesh.py produces in batch:
+// buildings + roads for one downtown tile, fetched live from GeoNB.
+const GM_BBOX = '-66.652,45.955,-66.628,45.970';
+const gmBtn = document.getElementById('gm-btn') as HTMLButtonElement;
+const gmStats = document.getElementById('gm-stats')!;
+let gmOn = false;
+let gmLoaded = false;
+
+async function gmFetch(service: string, layer: number, fields: string) {
+  const q = new URLSearchParams({
+    where: '1=1', geometry: GM_BBOX, geometryType: 'esriGeometryEnvelope',
+    inSR: '4326', outSR: '4326', outFields: fields, returnGeometry: 'true',
+    f: 'geojson', resultRecordCount: '3000',
+  });
+  const resp = await fetch(`${ARCGIS}/${service}/MapServer/${layer}/query?${q}`);
+  return resp.json();
+}
+
+async function loadGameMesh() {
+  const [b, r] = await Promise.all([
+    gmFetch('GeoNB_SNB_Buildings', 0, 'min_g_elev,max_b_elev'),
+    gmFetch('GeoNB_Basemap_NBRN', 1, 'Number_Of_Lanes,Route_Name_English_1'),
+  ]);
+  (map.getSource('gm-buildings') as maplibregl.GeoJSONSource).setData(b);
+  (map.getSource('gm-roads') as maplibregl.GeoJSONSource).setData(r);
+  const heights = (b.features ?? []).map(
+    (f: any) => ((f.properties?.max_b_elev ?? 0) as number) - ((f.properties?.min_g_elev ?? 0) as number),
+  );
+  const tallest = heights.length ? Math.max(...heights).toFixed(1) : '0';
+  gmStats.innerHTML =
+    `Pilot tile — downtown Fredericton: <b>${b.features?.length ?? 0} buildings</b>, ` +
+    `<b>${r.features?.length ?? 0} road segments</b>, tallest building ${tallest} m. ` +
+    `This is the export the PySpark pipeline feeds to GTA Fredericton (see scripts/extract_game_mesh.py).`;
+  gmLoaded = true;
+}
+
+gmBtn.addEventListener('click', async () => {
+  gmOn = !gmOn;
+  gmBtn.classList.toggle('on', gmOn);
+  gmBtn.textContent = gmOn ? '🎮 Exit game mesh' : '🎮 Game mesh explorer';
+  const rasters = ['geonb-imagery', 'geonb-topo', 'esri-imagery', 'geonb-imagery-year'];
+  for (const id of rasters) map.setLayoutProperty(id, 'visibility', gmOn ? 'none' : (id === 'geonb-imagery' ? 'visible' : 'none'));
+  map.setLayoutProperty('gm-bg', 'visibility', gmOn ? 'visible' : 'none');
+  map.setLayoutProperty('gm-roads', 'visibility', gmOn ? 'visible' : 'none');
+  map.setLayoutProperty('gm-buildings', 'visibility', gmOn ? 'visible' : 'none');
+  gmStats.hidden = !gmOn;
+  if (gmOn) {
+    stopTour();
+    if (!gmLoaded) { gmStats.textContent = 'Loading the pilot tile from GeoNB…'; await loadGameMesh(); }
+    map.flyTo({ center: [-66.6400, 45.9625], zoom: 15.2, pitch: 60, bearing: -25, duration: 1800 });
+  } else {
+    map.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+  }
+});

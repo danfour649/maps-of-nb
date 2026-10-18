@@ -39,3 +39,7 @@ html, body { margin: 0; height: 100%; font-family: ui-sans-serif, system-ui, -ap
 }
 #caption h2 { margin:0 0 4px; font-size:16px; }
 #caption p { margin:0; font-size:13px; line-height:1.5; color:#c4d3df; }
+
+.tour.alt { background:#2c3e50; }
+.tour.alt.on { background:#b83a2a; }
+#gm-stats { color:#ffd9a0; }
