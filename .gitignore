@@ -12,3 +12,13 @@ data/downloads/
 data/game-exports/fredericton/buildings.geojson
 data/game-exports/fredericton/roads.geojson
 data/game-exports/fredericton/wetlands.geojson
+
+# Bake output (deployed copy lives in web/public/ + the tiles-v* releases)
+tiles/*.pmtiles
+data/game-exports/fredericton/contours.geojson
+
+# Test / lint caches and coverage
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
