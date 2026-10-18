@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Maps of NB — Fredericton from GeoNB data</title>
+    <meta name="description" content="Interactive maps of Fredericton and New Brunswick built on GeoNB open data — provincial orthophotos at 0.15 m, topo basemaps, and more." />
+  </head>
+  <body>
+    <div id="app">
+      <header id="hud">
+        <h1>Maps of NB</h1>
+        <p class="sub">Fredericton, straight from <a href="https://geonb.snb.ca" target="_blank" rel="noreferrer">GeoNB</a> open data — the same source feeding the <a href="https://github.com/danfour649/maps-of-nb" target="_blank" rel="noreferrer">maps-of-nb</a> catalogue and the next generation of GTA Fredericton maps.</p>
+        <div class="row">
+          <span class="label">Basemap</span>
+          <div class="seg" id="basemap-seg">
+            <button data-base="geonb-imagery" class="on">GeoNB imagery</button>
+            <button data-base="geonb-topo">GeoNB topo</button>
+            <button data-base="esri-imagery">Esri imagery</button>
+          </div>
+        </div>
+        <div class="row">
+          <label class="chk"><input type="checkbox" id="year-toggle" /> Imagery-year overlay</label>
+        </div>
+        <div class="row views" id="views">
+          <span class="label">Go to</span>
+          <button data-view="downtown">Downtown</button>
+          <button data-view="unb">UNB / STU</button>
+          <button data-view="northside">Northside</button>
+          <button data-view="city">Whole city</button>
+        </div>
+        <p class="fine">Imagery: GeoNB orthophotos (latest contribution 13,000 km² at 0.15 m, flown 2025). Esri layer via Esri World Imagery. Not affiliated with the Government of New Brunswick.</p>
+      </header>
+      <div id="map"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

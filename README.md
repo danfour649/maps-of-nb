@@ -37,6 +37,9 @@ Digital Topographic Database.
 
 - `data-sources/` — the catalogue, one markdown file per source
 - `scripts/` — small tools for querying and pulling the services
+- `web/` — the Maps of NB viewer site (Vite + MapLibre, deployed on Vercel):
+  Fredericton on GeoNB's own imagery and topo basemaps, with an
+  imagery-year overlay. Deliberately not Next.js.
 - `analyses/` — notebooks and write-ups built on the data (coming)
 
 ## A note on licensing
