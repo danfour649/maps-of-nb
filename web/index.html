@@ -21,6 +21,11 @@
         </div>
         <div class="row">
           <label class="chk"><input type="checkbox" id="year-toggle" /> Imagery-year overlay</label>
+          <label class="chk"><input type="checkbox" id="b3d-toggle" /> 3D buildings (LiDAR heights)</label>
+        </div>
+        <div class="row">
+          <button id="tour-btn" class="tour">▶ Tour Fredericton</button>
+          <span class="hint" id="b3d-hint"></span>
         </div>
         <div class="row views" id="views">
           <span class="label">Go to</span>
@@ -32,6 +37,10 @@
         <p class="fine">Imagery: GeoNB orthophotos (latest contribution 13,000 km² at 0.15 m, flown 2025). Esri layer via Esri World Imagery. Not affiliated with the Government of New Brunswick.</p>
       </header>
       <div id="map"></div>
+      <div id="caption" hidden>
+        <h2 id="caption-title"></h2>
+        <p id="caption-body"></p>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
