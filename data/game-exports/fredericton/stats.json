@@ -8,7 +8,8 @@
  "layers": {
   "buildings": 30447,
   "roads": 3627,
-  "wetlands": 293
+  "wetlands": 293,
+  "contours": 2492
  },
  "municipality": "The City of Fredericton",
  "lidar_tiles": 414,

@@ -107,6 +107,6 @@ served same-origin at maps-of-nb.vercel.app/fredericton.pmtiles (GitHub
 release assets were rejected for the viewer: no CORS headers; the
 tiles-v1 release remains the download copy). The viewer probes the
 archive on load and switches the heavy layers to tiles, falling back to
-the live path if unreachable. Contours join in a v2 bake once the
-citywide contour extraction gets past GeoNB's 500s (the extractor now
-bisects dead pages); until then contours stay on the live paged path.
+the live path if unreachable. Contours joined in the v2 bake (2026-10-18): the citywide extraction
+(2,492 lines) got through once the extractor learned to bisect GeoNB's
+dead pages, and the archive grew only ~0.7 MB (8.0 MB total).
