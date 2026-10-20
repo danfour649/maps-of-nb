@@ -8,6 +8,9 @@ updates:
     directory: /tools
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "protobuf"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
