@@ -2,5 +2,5 @@ click==8.5.0
 mapbox-vector-tile==2.2.0
 mercantile==1.2.1
 pmtiles==3.8.1
-protobuf==7.36.2
+protobuf==6.33.6
 shapely==2.2.0
