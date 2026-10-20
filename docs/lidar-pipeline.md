@@ -107,3 +107,14 @@ counts instead of HTTP HEAD.
   checks (Rookwood flat, Smythe hill, downtown) against the 30 m DEM.
 - Publish a hillshade/elevation layer into the maps-of-nb viewer tiles.
 - Re-run when the GeoNB 2025 index gains Fredericton coverage.
+
+### Follow-on — sampled onto the GTA Fredericton heightmap (2026-10-20)
+
+The DTM built here is now the game's terrain source: GTAfredericton
+PR #201 samples it onto the game grid contract (same extent, rotation
+and datum; 10 m postings, 441x541) via an extended
+tools/build_game_heightmap.py --dtm mode in that repo. One conversion
+note lives there and is worth repeating here: the DTM is CGVD2013
+while the game datum was established against AWS Terrain Tiles, a
+median -1.48 m offset over the old grid's land nodes, so the game
+generator applies a documented +1.5 m calibration.
