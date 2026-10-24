@@ -21,7 +21,7 @@ import './style.css';
 const ARCGIS = 'https://geonb.snb.ca/arcgis/rest/services';
 const exportTile = (service: string, transparent: boolean) =>
   `${ARCGIS}/${service}/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857` +
-  `&size=512,512&format=png32&transparent=${transparent}&dpi=96&f=image`;
+  `&size=256,256&format=png32&transparent=${transparent}&dpi=96&f=image`;
 
 const VIEWS: Record<string, { center: [number, number]; zoom: number }> = {
   downtown: { center: [-66.6431, 45.9636], zoom: 15.5 },
@@ -35,12 +35,12 @@ const style: maplibregl.StyleSpecification = {
   glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
   sources: {
     'geonb-imagery': {
-      type: 'raster', tileSize: 512, maxzoom: 18,
+      type: 'raster', tileSize: 256, maxzoom: 18,
       tiles: [exportTile('GeoNB_Basemap_Imagery', false)],
       attribution: 'Imagery © GeoNB / Service New Brunswick',
     },
     'geonb-topo': {
-      type: 'raster', tileSize: 512, maxzoom: 18,
+      type: 'raster', tileSize: 256, maxzoom: 18,
       tiles: [exportTile('GeoNB_Basemap_Topo', false)],
       attribution: 'Basemap © GeoNB / Service New Brunswick',
     },
@@ -50,7 +50,7 @@ const style: maplibregl.StyleSpecification = {
       attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
     },
     'geonb-imagery-year': {
-      type: 'raster', tileSize: 512, maxzoom: 18,
+      type: 'raster', tileSize: 256, maxzoom: 18,
       tiles: [exportTile('GeoNB_SNB_ImageryYear', true)],
       attribution: 'Imagery year © GeoNB',
     },
@@ -73,9 +73,9 @@ const style: maplibregl.StyleSpecification = {
     'gm-roads': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
   },
   layers: [
-    { id: 'geonb-imagery', type: 'raster', source: 'geonb-imagery', layout: { visibility: 'visible' } },
+    { id: 'geonb-imagery', type: 'raster', source: 'geonb-imagery', layout: { visibility: 'none' } },
     { id: 'geonb-topo', type: 'raster', source: 'geonb-topo', layout: { visibility: 'none' } },
-    { id: 'esri-imagery', type: 'raster', source: 'esri-imagery', layout: { visibility: 'none' } },
+    { id: 'esri-imagery', type: 'raster', source: 'esri-imagery', layout: { visibility: 'visible' } },
     {
       id: 'geonb-imagery-year', type: 'raster', source: 'geonb-imagery-year',
       layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.55 },
