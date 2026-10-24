@@ -4,6 +4,9 @@ import sys
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+# the extract_*.py scripts import their shared helpers as a flat module (extract_common)
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
 
 
 def load_script(name: str):

@@ -36,6 +36,7 @@ what it's good for.
 | 001 | [GeoNB orthophotos](data-sources/001-geonb-orthophotos.md) | Aerial imagery of NB — latest contribution 13,000 km² at 0.15 m, flown summer 2025 |
 | 002 | [GeoNB wetlands](data-sources/002-geonb-wetlands.md) | Regulated wetland polygons — game surface typing (soft/slow ground) |
 | 003 | [GeoNB contours](data-sources/003-geonb-contours.md) | 10 m / 50 m elevation contours — slope/QA overlay (not a terrain source) |
+| 004 | [Full-city extraction wave](data-sources/004-full-city-extraction-wave.md) | HRDEM gap fill, City layers, GeoNB property, Overture, GTFS, ECCC feeds — dated pull with manifest |
 
 Also in active use via GeoNB's ArcGIS services: LiDAR-derived building
 footprints with measured heights, the provincial road network (NBRN) with
@@ -48,6 +49,9 @@ tile index. More catalogue entries to come: civic addresses, parcels, DTDB.
 - `scripts/` — tools for querying/pulling the services, the game-mesh
   extractor, the OSM comparison and the PMTiles baker (stdlib-only except
   the baker — see `tools/requirements-bake.txt`)
+- `data/extracts/` — manifest + stats for each dated full-city extraction wave
+  (`scripts/extract_*.py`, see [docs/data-extracts.md](docs/data-extracts.md)); the raw
+  extracts live on the fola boxes and cloud storage, not in git
 - `pipelines/` — the planned PySpark stage that turns the raw exports into
   game-ready data (see `pipelines/README.md`)
 - `web/` — the Maps of NB viewer site (Vite + MapLibre + TypeScript,
@@ -55,7 +59,8 @@ tile index. More catalogue entries to come: civic addresses, parcels, DTDB.
   basemaps, baked vector tiles with a live-ArcGIS fallback, an OSM
   comparison overlay and a game-mesh explorer. Deliberately not Next.js.
 - `tests/` — Python test suite (pytest) for the scripts and the bake
-- `docs/` — the GTA Fredericton map plan and the OSM-vs-GeoNB overlap study
+- `docs/` — the GTA Fredericton map plan, the OSM-vs-GeoNB overlap study and the
+  full-city data-extract guide
 
 ## Development
 
