@@ -51,7 +51,7 @@ tile index. More catalogue entries to come: civic addresses, parcels, DTDB.
   the baker — see `tools/requirements-bake.txt`)
 - `data/extracts/` — manifest + stats for each dated full-city extraction wave
   (`scripts/extract_*.py`, see [docs/data-extracts.md](docs/data-extracts.md)); the raw
-  extracts live on the fola boxes and cloud storage, not in git
+  extracts live on the fola boxes (and cloud storage), not in git
 - `pipelines/` — the planned PySpark stage that turns the raw exports into
   game-ready data (see `pipelines/README.md`)
 - `web/` — the Maps of NB viewer site (Vite + MapLibre + TypeScript,

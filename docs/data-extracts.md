@@ -10,9 +10,10 @@ the data, from which `MANIFEST.md` is built.
 
 - Scripts + the manifest + the small stats files: this repo (`scripts/extract_*.py`,
   `data/extracts/<date>/`).
-- The raw extracts (≈195 MB for the 2026-10-24 wave, one sub-folder per source): the fola boxes, at
-  `/mnt/folaDriveB/maps-of-nb-extracts/<date>/` on fola4.1, and the cloud archives
-  `maps-of-nb-extracts-<date>` on Google Drive, Box and Dropbox. Large rasters never go in git
+- The raw extracts (≈187 MB for the 2026-10-24 wave, one sub-folder per source): the fola boxes, at
+  `/mnt/folaDriveB/maps-of-nb-extracts/<date>/` on fola4.1. The convention for cloud copies is a
+  dated folder `maps-of-nb-extracts-<date>` on Google Drive, Box and Dropbox; whether a given wave has
+  been pushed is tracked in the PR that adds its manifest. Large rasters never go in git
   (`*.tif` is ignored), so the repo carries only scripts, manifest and stats.
 - Committed for 2026-10-24: [`data/extracts/2026-10-24/MANIFEST.md`](../data/extracts/2026-10-24/MANIFEST.md)
   (+ `MANIFEST.json`) and `hrdem2018_seam_stats.json`.
