@@ -176,6 +176,59 @@ def game_to_geo(x, z):
 
 
 
+def check_shores(shores):
+    """Shore-table guard (#480): warn loudly on the signatures of a
+    solver-lost band so a faulty table can never propagate silently
+    again. The 2026-11-09 fault shipped eight consecutive slices with
+    a byte-identical frozen band (196.9, 333.1) sitting 1.1 km from
+    the real channel: the transects along it hit land, four stations
+    dropped for too few samples, and neither consumer noticed. The
+    checks are warnings, not a gate -- odd reaches exist -- but they
+    print on every run:
+      * adjacent-row band-centre jump > 140 m (observed fault: 1132 m)
+      * a run of >= 3 byte-identical (lo, hi) rows (frozen band)
+      * width collapse: a row narrower than 40% of the median width
+        of its four nearest neighbours on each side
+    Returns the number of warnings raised.
+    """
+    rows = [(float(r[0]), float(r[1]), float(r[2])) for r in shores]
+    warns = 0
+    for i in range(1, len(rows)):
+        jump = abs((rows[i][1] + rows[i][2]) / 2.0
+                   - (rows[i - 1][1] + rows[i - 1][2]) / 2.0)
+        if jump > 140.0:
+            print(f"SHORE GUARD: centre jump {jump:.0f} m between "
+                  f"x={rows[i - 1][0]} and x={rows[i][0]}",
+                  file=sys.stderr)
+            warns += 1
+    run = 1
+    for i in range(1, len(rows) + 1):
+        if i < len(rows) and rows[i][1:] == rows[i - 1][1:]:
+            run += 1
+        else:
+            if run >= 3:
+                print(f"SHORE GUARD: frozen band ({rows[i - 1][1]}, "
+                      f"{rows[i - 1][2]}) repeated over {run} slices "
+                      f"ending at x={rows[i - 1][0]}", file=sys.stderr)
+                warns += 1
+            run = 1
+    for i, (x, lo, hi) in enumerate(rows):
+        near = [rows[j][2] - rows[j][1]
+                for j in range(max(0, i - 4), min(len(rows), i + 5))
+                if j != i]
+        if near:
+            med = sorted(near)[len(near) // 2]
+            if med > 0 and hi - lo < 0.4 * med:
+                print(f"SHORE GUARD: width collapse at x={x}: "
+                      f"{hi - lo:.0f} m vs neighbour median {med:.0f} m",
+                      file=sys.stderr)
+                warns += 1
+    if warns:
+        print(f"SHORE GUARD: {warns} warning(s) -- inspect the shore "
+              f"table before trusting these sections", file=sys.stderr)
+    return warns
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cache", default="/tmp/bathy_cache")
@@ -190,6 +243,7 @@ def main():
 
     with open(args.shores) as f:
         shores = json.load(f)["river"]["shores"]
+    check_shores(shores)
 
     stations = []  # (x, [depth per t-bin], measured_points)
     csv_rows = []

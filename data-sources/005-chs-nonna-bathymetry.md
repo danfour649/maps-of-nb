@@ -55,6 +55,41 @@ empty bins are linearly interpolated and the end bins pinned to 0.0
   profiles: `game_x, n_measured, depth_t0.00 … depth_t1.00`
   (35 stations kept, 2,388 raw samples on the 2026-11-06 run).
 
+## 2026-11-09: the west-reach shore fault (#480) and the guard
+
+The 2026-11-06 sections carried a silent hole: stations at game_x
+−3088, −2788, −2488 and −2188 were missing. Root cause was upstream
+in the game's shore table, not in NONNA coverage: the import solver
+that built `river.shores` (game `tools/osm_import.py`) lost the main
+channel where the river bends south-west and splits around an
+island west of downtown, and froze eight consecutive slices
+(x −3238…−2188) on a 136 m side-channel band at z 196.9…333.1 while
+the real channel runs at z ~660…1665 there. Transects along the fake
+band sampled land, fell under the 6-sample keep rule, and dropped —
+in both consumers, unnoticed. (In the game the same band also cut
+the river itself off at altitude: TODO #480.)
+
+Fix chain, per the fix-at-the-source ruling: the generator was
+fixed in the game repo (`compute_shores` now resolves split channels
+by crossing parity and island merging); the shipped table was
+repaired against this repo's GeoNB LiDAR DTM
+(`tools/repair_river_shores.py` in the game repo — DEM water-complex
+span plus bank margins from healthy anchor slices, content-clipped
+against buildings/streets; 12 slices, core coverage 0.00–0.76 →
+0.92–1.00); and both consumers regenerated their sections from the
+repaired table. The 2026-11-09 run keeps **39 stations, 2,848 raw
+samples**, with the four west-reach stations restored
+(81–105 measured points each).
+
+`scripts/import_bathymetry.py` now runs a shore-table guard
+(`check_shores`) on every import and warns on the fault's
+signatures: adjacent-row band-centre jumps > 140 m, runs of ≥ 3
+byte-identical rows (frozen band), and width collapse vs the
+neighbour median. On the faulty table it fires exactly on the
+#480 run; on the repaired table the remaining warnings are the
+far-west table's genuine swings and one known sibling anomaly at
+game_x 1561.6 (Nashwaak mouth), flagged for its own look.
+
 ## Reproduce
 
 ```sh
