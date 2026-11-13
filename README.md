@@ -6,8 +6,9 @@ New Brunswick open geospatial data, organized for actual use: a catalogue of the
 province's best open map data, small pipelines that pull it down and clean it up,
 and analyses built on top of it.
 
-**Live viewer:** https://maps-of-nb.vercel.app — Fredericton
-on GeoNB's own imagery/topo basemaps (Vite + MapLibre; deliberately not Next.js).
+**Live viewer:** https://maps-of-nb.vercel.app — Fredericton and
+New Brunswick on GeoNB's own imagery/topo basemaps, in English and French
+(Vite + MapLibre; deliberately not Next.js).
 
 Most of New Brunswick's authoritative map data is already open — GeoNB has been
 giving it away for decades — but it's scattered across a data catalogue, ArcGIS
@@ -37,6 +38,9 @@ what it's good for.
 | 002 | [GeoNB wetlands](data-sources/002-geonb-wetlands.md) | Regulated wetland polygons — game surface typing (soft/slow ground) |
 | 003 | [GeoNB contours](data-sources/003-geonb-contours.md) | 10 m / 50 m elevation contours — slope/QA overlay (not a terrain source) |
 | 004 | [Full-city extraction wave](data-sources/004-full-city-extraction-wave.md) | HRDEM gap fill, City layers, GeoNB property, Overture, GTFS, ECCC feeds — dated pull with manifest |
+| 004 | [GeoNB LiDAR](data-sources/004-geonb-lidar.md) | Province-wide LiDAR point clouds and derived terrain |
+| 005 | [CHS NONNA bathymetry](data-sources/005-chs-nonna-bathymetry.md) | Riverbed depths for the Saint John River transects |
+| 006 | [Protected Natural Areas, Crown land, ecoregions](data-sources/006-nb-protected-natural-areas.md) | 208 protected areas (Class I / II), Crown tenure and ecological regions — province-wide |
 
 Also in active use via GeoNB's ArcGIS services: LiDAR-derived building
 footprints with measured heights, the provincial road network (NBRN) with
@@ -58,6 +62,10 @@ tile index. More catalogue entries to come: civic addresses, parcels, DTDB.
   deployed on Vercel): Fredericton on GeoNB's own imagery and topo
   basemaps, baked vector tiles with a live-ArcGIS fallback, an OSM
   comparison overlay and a game-mesh explorer. Deliberately not Next.js.
+  Province-wide: Protected Natural Areas, Crown land, ecoregions and
+  ecodistricts, with search (protected areas, place names, addresses,
+  coordinates), a measure tool, client-side PDF/PNG export, shareable
+  links and an English/French toggle.
 - `tests/` — Python test suite (pytest) for the scripts and the bake
 - `docs/` — the GTA Fredericton map plan, the OSM-vs-GeoNB overlap study and the
   full-city data-extract guide
@@ -74,6 +82,7 @@ cd web
 npm ci
 npm test                               # build + build-output checks + unit tests
 npm run test:e2e                       # headless render test (Playwright)
+                                       # CHROME_PATH=/path/to/chrome skips the browser download
 ```
 
 CI (GitHub Actions, `.github/workflows/ci.yml`) runs the Python suite with

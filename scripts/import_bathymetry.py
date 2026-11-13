@@ -56,7 +56,6 @@ import json
 import math
 import os
 import struct
-import sys
 import urllib.parse
 import urllib.request
 
@@ -248,7 +247,7 @@ def main():
                    ["depth_t%.2f" % (j / (T_BINS - 1)) for j in range(T_BINS)])
         for sx, prof, n in stations:
             w.writerow([sx, n] + prof)
-    print("stations kept: %d; raw samples: %d" % (len(stations), len(csv_rows)))
+    print(f"stations kept: {len(stations)}; raw samples: {len(csv_rows)}")
 
 
 if __name__ == "__main__":

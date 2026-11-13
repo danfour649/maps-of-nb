@@ -4,7 +4,7 @@
 Two modes:
   --bbox W,S,E,N   Extract one envelope (default: downtown Fredericton pilot tile).
   --city NAME      Extract a full municipality: the official boundary polygon
-                   comes from GeoNB_ELG_MunicipalAreas2 ("Local Government
+                   comes from GeoNB_ELG_Local_Governance ("Local Government
                    Boundaries - January 2023") and every building/road inside
                    it is pulled with POST-paged ArcGIS queries.
 
@@ -32,7 +32,9 @@ LAYERS = {
     "contours": ("GeoNB_SNB_Contours", 1, "Contour", "OBJECTID"),
     "roads": ("GeoNB_Basemap_NBRN", 1, "Number_Of_Lanes,Route_Name_English_1,Formatted_Street_Name,Func_Road_Class,Speed_Restrictions_Both,Dir_of_Traffic_Flow,Road_Segment_ID", "OBJECTID"),
 }
-BOUNDARY_SERVICE = ("GeoNB_ELG_MunicipalAreas2", 4)
+# GeoNB retired GeoNB_ELG_MunicipalAreas2 (404 since late 2026); the same
+# January 2023 local-government polygons now live here, layer 8 = large scale.
+BOUNDARY_SERVICE = ("GeoNB_ELG_Local_Governance", 8)
 
 
 def _curl_json(args: list) -> dict:

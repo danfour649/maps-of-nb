@@ -80,7 +80,7 @@ def load_boundary(path: Path = BOUNDARY_PATH) -> dict:
     q = urllib.parse.urlencode({
         "where": "Name='The City of Fredericton'", "outFields": "Name,Type,Shape_Area",
         "returnGeometry": "true", "outSR": "4326", "f": "geojson", "geometryPrecision": "6"})
-    return fetch_json("https://geonb.snb.ca/arcgis/rest/services/GeoNB_ELG_MunicipalAreas2/MapServer/4/query?" + q)
+    return fetch_json("https://geonb.snb.ca/arcgis/rest/services/GeoNB_ELG_Local_Governance/MapServer/8/query?" + q)
 
 
 def boundary_rings(boundary: dict) -> list:

@@ -58,3 +58,168 @@ export function matchPct(src: [number, number][], dst: [number, number][], radiu
   }
   return Math.round((100 * hits) / n);
 }
+
+// ---------- Measuring, hit-testing and text helpers (search, measure, popups) ----------
+
+const R_EARTH = 6371008.8; // mean Earth radius, metres
+const rad = (d: number) => (d * Math.PI) / 180;
+export type LngLat = [number, number];
+
+/** Great-circle distance between two [lng, lat] points, in metres. */
+export function haversineM(a: LngLat, b: LngLat): number {
+  const dLat = rad(b[1] - a[1]), dLng = rad(b[0] - a[0]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLng / 2) ** 2;
+  return 2 * R_EARTH * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Length of a path of [lng, lat] vertices, in metres. */
+export function pathLengthM(pts: LngLat[]): number {
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) total += haversineM(pts[i - 1], pts[i]);
+  return total;
+}
+
+/** Area enclosed by a ring of [lng, lat] vertices on the sphere, in square
+ *  metres. The ring is closed implicitly; winding does not matter. */
+export function ringAreaM2(ring: LngLat[]): number {
+  if (ring.length < 3) return 0;
+  let sum = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i], q = ring[(i + 1) % ring.length];
+    sum += rad(q[0] - p[0]) * (2 + Math.sin(rad(p[1])) + Math.sin(rad(q[1])));
+  }
+  return Math.abs((sum * R_EARTH * R_EARTH) / 2);
+}
+
+function inRing(pt: LngLat, ring: number[][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** True when pt lies inside a GeoJSON Polygon / MultiPolygon geometry
+ *  (holes respected). */
+export function pointInGeometry(pt: LngLat, geom: any): boolean {
+  if (!geom) return false;
+  const polys: number[][][][] =
+    geom.type === 'Polygon' ? [geom.coordinates] : geom.type === 'MultiPolygon' ? geom.coordinates : [];
+  return polys.some((rings) => rings.length > 0 && inRing(pt, rings[0]) && !rings.slice(1).some((h) => inRing(pt, h)));
+}
+
+/** [west, south, east, north] of any GeoJSON geometry, or null when empty. */
+export function bboxOf(geom: any): [number, number, number, number] | null {
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  const walk = (c: any) => {
+    if (!Array.isArray(c)) return;
+    if (typeof c[0] === 'number') {
+      if (c[0] < w) w = c[0];
+      if (c[0] > e) e = c[0];
+      if (c[1] < s) s = c[1];
+      if (c[1] > n) n = c[1];
+    } else c.forEach(walk);
+  };
+  walk(geom?.coordinates);
+  return Number.isFinite(w) ? [w, s, e, n] : null;
+}
+
+/** A point guaranteed to sit on the biggest part of a polygon geometry —
+ *  where its label goes. Vertex mean when that lands inside, otherwise the
+ *  midpoint of the widest interior span along the part's middle latitude
+ *  (handles crescents and rings, where the mean falls outside). */
+export function labelPoint(geom: any): LngLat | null {
+  const polys: number[][][][] =
+    geom?.type === 'Polygon' ? [geom.coordinates] : geom?.type === 'MultiPolygon' ? geom.coordinates : [];
+  let best: number[][][] | null = null, bestArea = -1;
+  for (const rings of polys) {
+    if (!rings.length) continue;
+    const a = ringAreaM2(rings[0] as LngLat[]);
+    if (a > bestArea) { bestArea = a; best = rings; }
+  }
+  if (!best) return null;
+  const outer = best[0];
+  let x = 0, y = 0;
+  for (const p of outer) { x += p[0]; y += p[1]; }
+  const mean: LngLat = [x / outer.length, y / outer.length];
+  const part = { type: 'Polygon', coordinates: best };
+  if (pointInGeometry(mean, part)) return mean;
+  const bb = bboxOf(part)!;
+  const lat = (bb[1] + bb[3]) / 2;
+  const xs: number[] = [];
+  for (const ring of best) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if ((yi > lat) !== (yj > lat)) xs.push(((xj - xi) * (lat - yi)) / (yj - yi) + xi);
+    }
+  }
+  xs.sort((a, b) => a - b);
+  let span: LngLat | null = null, width = -1;
+  for (let i = 0; i + 1 < xs.length; i += 2) {
+    if (xs[i + 1] - xs[i] > width) { width = xs[i + 1] - xs[i]; span = [(xs[i] + xs[i + 1]) / 2, lat]; }
+  }
+  return span ?? mean;
+}
+
+/** Lower-case, accent-free, punctuation-free form for matching, so
+ *  "Île Verte", "ile verte" and "ILE-VERTE" all compare equal. */
+export function foldText(s: string): string {
+  return (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** Match quality of a query against a name: 3 = starts the name, 2 = starts
+ *  a word in it, 1 = appears somewhere, 0 = no match. Both sides folded. */
+export function matchScore(name: string, query: string): number {
+  const n = foldText(name), q = foldText(query);
+  if (!q || !n) return 0;
+  if (n.startsWith(q)) return 3;
+  if ((' ' + n).includes(' ' + q)) return 2;
+  return n.includes(q) ? 1 : 0;
+}
+
+/** Parse "45.96, -66.64", "-66.64 45.96" or "45.96N 66.64W" into [lng, lat].
+ *  Order is inferred for New Brunswick-ish input (a negative or >90 value is
+ *  the longitude); returns null for anything that is not a coordinate pair. */
+export function parseCoords(input: string): LngLat | null {
+  const m = input.trim().match(/^(-?\d{1,3}(?:\.\d+)?)\s*°?\s*([NSEW])?\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*°?\s*([NSEW])?$/i);
+  if (!m) return null;
+  let a = parseFloat(m[1]), b = parseFloat(m[3]);
+  const ha = m[2]?.toUpperCase(), hb = m[4]?.toUpperCase();
+  if (ha === 'S' || ha === 'W') a = -Math.abs(a);
+  if (hb === 'S' || hb === 'W') b = -Math.abs(b);
+  let lat: number, lng: number;
+  if (ha === 'E' || ha === 'W' || hb === 'N' || hb === 'S') { lng = a; lat = b; }
+  else if (ha === 'N' || ha === 'S' || hb === 'E' || hb === 'W') { lat = a; lng = b; }
+  else if (Math.abs(a) > 90 || (a < 0 && b > 0)) { lng = a; lat = b; }
+  else { lat = a; lng = b; }
+  // Bare "45.96 66.64": a positive longitude this far west is a missing minus sign.
+  if (!ha && !hb && lng > 0 && lat > 40 && lat < 50 && lng > 60 && lng < 70) lng = -lng;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return [lng, lat];
+}
+
+/** "842 m" / "3.42 km" */
+export function formatDistance(m: number): string {
+  return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 100000 ? 2 : 1)} km`;
+}
+
+/** "640 m²" / "2.31 ha" / "14.2 km²" — hectares in the range land people use them. */
+export function formatArea(m2: number): string {
+  if (m2 < 10000) return `${Math.round(m2)} m²`;
+  if (m2 < 1e7) return `${(m2 / 10000).toFixed(2)} ha`;
+  return `${(m2 / 1e6).toFixed(m2 < 1e9 ? 2 : 0)} km²`;
+}
+
+/** "96 Rue REGENT Street Aucun, Fredericton" -> "96 Rue REGENT Street, Fredericton":
+ *  the address locator spells out an empty direction field as "Aucun" (none). */
+export function tidyAddress(text: string): string {
+  return text.replace(/\s+Aucun\b/gi, '').replace(/\s+,/g, ',').replace(/\s+/g, ' ').trim();
+}
+
+/** SQL LIKE prefix for the place-name service: upper-cased, quotes doubled,
+ *  LIKE wildcards stripped so user input cannot widen the match. */
+export function likePrefix(query: string): string {
+  return query.trim().toUpperCase().replace(/[%_]/g, '').replace(/'/g, "''");
+}

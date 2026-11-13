@@ -1,6 +1,12 @@
 import * as maplibregl from 'maplibre-gl';
 import { Protocol, PMTiles } from 'pmtiles';
 import { featKey, osmToGeojson, centroids, matchPct } from './geo';
+import { t, getLang, setLang, detectLang, onLang, locale, TOUR_TEXT } from './i18n';
+import { parseState, writeState, LAYER_KEYS, type BaseKey, type LayerKey } from './urlstate';
+import { initProtected, type ProtectedApi, type LandKey } from './protected';
+import { initSearch } from './search';
+import { initMeasure } from './measure';
+import { initPrint } from './print';
 
 // Baked vector tiles (scripts/bake_tiles.py) served as a static archive.
 // When reachable, the heavy layers render from tiles; otherwise the viewer
@@ -29,6 +35,13 @@ const VIEWS: Record<string, { center: [number, number]; zoom: number }> = {
   northside: { center: [-66.6285, 45.9789], zoom: 14.5 },
   city: { center: [-66.66, 45.96], zoom: 12 },
 };
+const NB_BOUNDS: [[number, number], [number, number]] = [[-69.1, 44.55], [-63.7, 48.1]];
+
+{
+  let saved: string | null = null;
+  try { saved = localStorage.getItem('lang'); } catch { /* private mode */ }
+  setLang(detectLang(location.search, saved, navigator.language));
+}
 
 const style: maplibregl.StyleSpecification = {
   version: 8,
@@ -235,23 +248,42 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
 // Test hook: integration tests drive the live map instance.
 (window as unknown as { __map?: maplibregl.Map }).__map = map;
-map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+// Top-right: the control panel owns the left edge on short screens.
+map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'top-right');
 
-const BASES = ['geonb-imagery', 'geonb-topo', 'esri-imagery'] as const;
+map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true }), 'bottom-right');
+
+// Cursor coordinates (centre of the view on touch devices, which have no cursor).
+{
+  const el = document.createElement('div');
+  el.className = 'maplibregl-ctrl coords-ctrl';
+  const show = (lng: number, lat: number) => { el.textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)} · z${map.getZoom().toFixed(1)}`; };
+  map.addControl({ onAdd: () => el, onRemove: () => el.remove() }, 'top-right');
+  map.on('mousemove', (e) => show(e.lngLat.lng, e.lngLat.lat));
+  map.on('move', () => { if (!matchMedia('(hover: hover)').matches) { const c = map.getCenter(); show(c.lng, c.lat); } });
+  const c = map.getCenter(); show(c.lng, c.lat);
+}
+
+// ---------- Basemap + imagery-year: one place decides what the rasters show ----------
+// (Leaving game-mesh mode used to force GeoNB imagery on regardless of the
+// selected basemap, and left the year overlay off while its box stayed ticked.)
+const BASE_LAYER: Record<BaseKey, string> = { esri: 'esri-imagery', geonb: 'geonb-imagery', topo: 'geonb-topo' };
+let currentBase: BaseKey = 'esri';
+let yearOn = false;
+function syncBasemap() {
+  for (const [key, id] of Object.entries(BASE_LAYER))
+    map.setLayoutProperty(id, 'visibility', !gmOn && key === currentBase ? 'visible' : 'none');
+  map.setLayoutProperty('geonb-imagery-year', 'visibility', !gmOn && yearOn ? 'visible' : 'none');
+  document.querySelectorAll<HTMLButtonElement>('#basemap-seg button')
+    .forEach((b) => b.classList.toggle('on', b.dataset.base === currentBase));
+}
 document.querySelectorAll<HTMLButtonElement>('#basemap-seg button').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#basemap-seg button').forEach((b) => b.classList.remove('on'));
-    btn.classList.add('on');
-    const chosen = btn.dataset.base!;
-    for (const id of BASES) {
-      map.setLayoutProperty(id, 'visibility', id === chosen ? 'visible' : 'none');
-    }
-  });
+  btn.addEventListener('click', () => { currentBase = btn.dataset.base as BaseKey; syncBasemap(); saveState(); });
 });
 
 document.getElementById('year-toggle')?.addEventListener('change', (e) => {
-  const on = (e.target as HTMLInputElement).checked;
-  map.setLayoutProperty('geonb-imagery-year', 'visibility', on ? 'visible' : 'none');
+  yearOn = (e.target as HTMLInputElement).checked;
+  syncBasemap();
 });
 
 document.querySelectorAll<HTMLButtonElement>('#views button').forEach((btn) => {
@@ -259,6 +291,11 @@ document.querySelectorAll<HTMLButtonElement>('#views button').forEach((btn) => {
     if (btn.dataset.view === 'city' && cityBounds) {
       stopTour();
       map.fitBounds(cityBounds, { padding: 30, duration: 1600 });
+      return;
+    }
+    if (btn.dataset.view === 'province') {
+      stopTour();
+      map.fitBounds(NB_BOUNDS, { padding: 20, pitch: 0, bearing: 0, duration: 1800 });
       return;
     }
     const v = VIEWS[btn.dataset.view!];
@@ -358,7 +395,7 @@ async function refreshBuildings() {
   if (map.getZoom() < 14.5) {
     (map.getSource('geonb-buildings') as maplibregl.GeoJSONSource)
       .setData({ type: 'FeatureCollection', features: [] });
-    if (hint) hint.textContent = 'Zoom in closer — buildings load at street level.';
+    if (hint) hint.textContent = t('b3d.zoom');
     return;
   }
   if (hint) hint.textContent = '';
@@ -376,7 +413,7 @@ document.getElementById('b3d-toggle')?.addEventListener('change', (e) => {
   map.setLayoutProperty('buildings-3d', 'visibility', buildingsOn ? 'visible' : 'none');
   syncTilesVisibility();
   if (buildingsOn) {
-    map.easeTo({ pitch: 55, duration: 1200 });
+    if (!restoring) map.easeTo({ pitch: 55, duration: 1200 }); // a shared link carries its own pitch
     refreshBuildings();
   } else {
     map.easeTo({ pitch: 0, duration: 1200 });
@@ -389,41 +426,28 @@ map.on('moveend', () => {
 });
 
 // ---------- Fredericton landmark tour ----------
-type Stop = { name: string; body: string; center: [number, number]; zoom: number; pitch: number; bearing: number };
+// Copy for each stop lives in i18n.ts (TOUR_TEXT), in both languages, same order.
+type Stop = { center: [number, number]; zoom: number; pitch: number; bearing: number };
 const STOPS: Stop[] = [
   {
-    name: 'The Legislative Assembly',
-    body: 'New Brunswick’s seat of government since 1882, on Queen Street. The dome you’re looking at was rebuilt after the original burned — the chamber inside still sits under it.',
     center: [-66.6357, 45.9590], zoom: 16.5, pitch: 55, bearing: -20,
   },
   {
-    name: 'Christ Church Cathedral',
-    body: 'Consecrated in 1853 and the first cathedral founded on British soil since the Norman Conquest. Its spire is the downtown skyline’s exclamation point — and a fixed point in every Fredericton photo since.',
     center: [-66.6353, 45.9573], zoom: 16.5, pitch: 55, bearing: 30,
   },
   {
-    name: 'Beaverbrook Art Gallery',
-    body: 'Gifted to the province by Lord Beaverbrook in 1959 — and home to Salvador Dalí’s enormous Santiago El Grande, which somehow ended up in Fredericton and never left.',
     center: [-66.6374, 45.9601], zoom: 16.5, pitch: 50, bearing: -35,
   },
   {
-    name: 'Officers’ Square',
-    body: 'The old military parade ground, now downtown’s living room — concerts, markets, and skating in winter. The Guard House and barracks along Queen Street are the 1820s originals.',
     center: [-66.6416, 45.9622], zoom: 16.5, pitch: 55, bearing: 15,
   },
   {
-    name: 'Westmorland Street Bridge',
-    body: 'The daily link between downtown and the north side, opened in 1982. Under it runs the river trail network — and in the game, this is where a lot of questionable driving happens.',
     center: [-66.6418, 45.9652], zoom: 15.5, pitch: 45, bearing: -60,
   },
   {
-    name: 'Bill Thorpe Walking Bridge',
-    body: 'The old railway bridge, now the spine of the trail system and the best sunset walk in the city. Trains crossed here until the 1990s; now it’s strollers, bikes, and dogs.',
     center: [-66.6298, 45.9560], zoom: 15.5, pitch: 45, bearing: 70,
   },
   {
-    name: 'University of New Brunswick',
-    body: 'Founded 1785 — one of the oldest public universities in North America, up the hill where it can keep an eye on the legislature. This is the last stop; the map is yours again.',
     center: [-66.6413, 45.9482], zoom: 15.5, pitch: 50, bearing: -25,
   },
 ];
@@ -440,20 +464,21 @@ function stopTour() {
   tourTimers = [];
   touring = false;
   caption.hidden = true;
-  tourBtn.textContent = '▶ Tour Fredericton';
+  tourBtn.textContent = t('tour.start');
   tourBtn.classList.remove('stop');
 }
 
 function startTour() {
   stopTour();
   touring = true;
-  tourBtn.textContent = '■ Stop tour';
+  tourBtn.textContent = t('tour.stop');
   tourBtn.classList.add('stop');
   const STEP_MS = 7000;
   STOPS.forEach((stop, i) => {
     tourTimers.push(window.setTimeout(() => {
-      captionTitle.textContent = stop.name;
-      captionBody.textContent = stop.body;
+      const text = TOUR_TEXT[getLang()][i];
+      captionTitle.textContent = text.name;
+      captionBody.textContent = text.body;
       caption.hidden = false;
       map.flyTo({ center: stop.center, zoom: stop.zoom, pitch: stop.pitch, bearing: stop.bearing, duration: 3000 });
     }, i * STEP_MS));
@@ -463,8 +488,12 @@ function startTour() {
 
 tourBtn.addEventListener('click', () => (touring ? stopTour() : startTour()));
 map.on('mousedown', () => { if (touring) stopTour(); });
+map.on('touchstart', () => { if (touring) stopTour(); });
 
-// ---------- City boundary (official, GeoNB_ELG_MunicipalAreas2 Jan 2023) ----------
+// ---------- City boundary (official local-government polygons, Jan 2023) ----------
+// GeoNB retired GeoNB_ELG_MunicipalAreas2 (it 404s), which silently dropped the
+// boundary outline, the true "Whole city" fit and the citywide totals. The same
+// polygons are served from GeoNB_ELG_Local_Governance, layer 8 (large scale).
 let cityTotals: { buildings: number; roads: number } | null = null;
 async function loadBoundary() {
   try {
@@ -472,7 +501,8 @@ async function loadBoundary() {
       where: "Name='The City of Fredericton'", outFields: 'Name,Type',
       returnGeometry: 'true', outSR: '4326', f: 'geojson', geometryPrecision: '5',
     });
-    const resp = await fetch(`${ARCGIS}/GeoNB_ELG_MunicipalAreas2/MapServer/4/query?${q}`);
+    const resp = await fetch(`${ARCGIS}/GeoNB_ELG_Local_Governance/MapServer/8/query?${q}`);
+    if (!resp.ok) throw new Error('boundary ' + resp.status);
     const gj = await resp.json();
     (map.getSource('city-boundary') as maplibregl.GeoJSONSource).setData(gj);
     // "Whole city" fits the real boundary, not a guessed bbox.
@@ -524,7 +554,7 @@ async function gmFetch(service: string, layer: number, fields: string, _bbox: st
 
 function cityTotalsText() {
   return cityTotals
-    ? ` Citywide inside the official boundary: ${cityTotals.buildings.toLocaleString()} buildings, ${cityTotals.roads.toLocaleString()} road segments.`
+    ? t('gm.totals', { b: cityTotals.buildings.toLocaleString(locale()), r: cityTotals.roads.toLocaleString(locale()) })
     : '';
 }
 
@@ -537,7 +567,7 @@ async function loadGmViewport() {
       (map.getSource('gm-buildings') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
       (map.getSource('gm-roads') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
     }
-    gmStats.textContent = `Zoom in to load the mesh for where you're looking.${cityTotalsText()}`;
+    gmStats.textContent = t('gm.zoom') + cityTotalsText();
     return;
   }
   if (tilesOn) {
@@ -548,10 +578,7 @@ async function loadGmViewport() {
         b = map.queryRenderedFeatures({ layers: ['t-gm-buildings'] }).length;
         r = map.queryRenderedFeatures({ layers: ['t-gm-roads'] }).length;
       } catch { /* layers not ready yet */ }
-      gmStats.innerHTML =
-        `In view: <b>${b} buildings</b>, <b>${r} road segments</b> (baked tiles).` +
-        cityTotalsText() +
-        ` The PySpark pipeline feeds these layers to GTA Fredericton (scripts/extract_game_mesh.py).`;
+      gmStats.innerHTML = t('gm.inview', { b, r, src: t('gm.baked') }) + cityTotalsText() + t('gm.pipeline');
     }, 800);
     return;
   }
@@ -566,12 +593,10 @@ async function loadGmViewport() {
     if (token !== gmToken) return; // superseded by a newer pan
     (map.getSource('gm-buildings') as maplibregl.GeoJSONSource).setData(bj);
     (map.getSource('gm-roads') as maplibregl.GeoJSONSource).setData(rj);
-    gmStats.innerHTML =
-      `In view: <b>${bj.features?.length ?? 0} buildings</b>, <b>${rj.features?.length ?? 0} road segments</b>.` +
-      cityTotalsText() +
-      ` The PySpark pipeline feeds these layers to GTA Fredericton (scripts/extract_game_mesh.py).`;
+    gmStats.innerHTML = t('gm.inview', { b: bj.features?.length ?? 0, r: rj.features?.length ?? 0, src: '' }) +
+      cityTotalsText() + t('gm.pipeline');
   } catch {
-    gmStats.textContent = 'GeoNB did not answer that one — pan or zoom to retry.';
+    gmStats.textContent = t('gm.retry');
   } finally {
     gmLoading = false;
   }
@@ -586,9 +611,8 @@ map.on('moveend', () => {
 gmBtn.addEventListener('click', async () => {
   gmOn = !gmOn;
   gmBtn.classList.toggle('on', gmOn);
-  gmBtn.textContent = gmOn ? '🎮 Exit game mesh' : '🎮 Game mesh explorer';
-  const rasters = ['geonb-imagery', 'geonb-topo', 'esri-imagery', 'geonb-imagery-year'];
-  for (const id of rasters) map.setLayoutProperty(id, 'visibility', gmOn ? 'none' : (id === 'geonb-imagery' ? 'visible' : 'none'));
+  gmBtn.textContent = t(gmOn ? 'gm.exit' : 'gm.enter');
+  syncBasemap();
   map.setLayoutProperty('gm-bg', 'visibility', gmOn ? 'visible' : 'none');
   const gmTerrain = document.getElementById('gm-terrain') as HTMLInputElement;
   const relief = gmOn && gmTerrain.checked;
@@ -601,7 +625,7 @@ gmBtn.addEventListener('click', async () => {
   syncTilesVisibility();
   if (gmOn) {
     stopTour();
-    gmStats.textContent = 'Loading the mesh from GeoNB…';
+    gmStats.textContent = t('gm.loading');
     map.flyTo({ center: [-66.6400, 45.9625], zoom: 15.2, pitch: 60, bearing: -25, duration: 1800 });
     setTimeout(loadGmViewport, 2000);
   } else {
@@ -619,6 +643,8 @@ function setHudCollapsed(collapsed: boolean) {
 hudToggle.addEventListener('click', () =>
   setHudCollapsed(!hud.classList.contains('collapsed')));
 if (window.innerWidth <= 560) setHudCollapsed(true);
+// Short laptop screens: start with the Fredericton extras folded so the tools stay in view.
+if (window.innerHeight < 860) document.getElementById('sec-explore')?.removeAttribute('open');
 
 document.getElementById('gm-terrain')!.addEventListener('change', (e) => {
   const on = (e.target as HTMLInputElement).checked && gmOn;
@@ -642,11 +668,11 @@ async function loadCompare() {
   if (!cmpOn || cmpLoading) return;
   (loadCompare as any)._t = ++cmpToken;
   if (map.getZoom() < 13) {
-    cmpStats.textContent = 'Zoom in to compare the two sources where you are looking.';
+    cmpStats.textContent = t('cmp.zoom');
     return;
   }
   cmpLoading = true;
-  cmpStats.textContent = 'Fetching GeoNB and OpenStreetMap for this view…';
+  cmpStats.textContent = t('cmp.fetching');
   try {
     const b = map.getBounds();
     const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
@@ -662,19 +688,19 @@ async function loadCompare() {
     const oj = await oresp.json();
     const ob = osmToGeojson(oj.elements.filter((e: any) => e.tags?.building), 'building');
     const oroads = osmToGeojson(oj.elements.filter((e: any) => e.tags?.highway), 'road');
+    // A newer pan superseded this load: drop it before it paints stale data.
+    if ((loadCompare as any)._t !== cmpToken) return;
     (map.getSource('cmp-geonb-buildings') as maplibregl.GeoJSONSource).setData(gb);
     (map.getSource('cmp-geonb-roads') as maplibregl.GeoJSONSource).setData(gr);
     (map.getSource('cmp-osm-buildings') as maplibregl.GeoJSONSource).setData(ob);
     (map.getSource('cmp-osm-roads') as maplibregl.GeoJSONSource).setData(oroads);
-    if ((loadCompare as any)._t !== cmpToken) return;
     const g2o = matchPct(centroids(gb), centroids(ob), 15);
     const o2g = matchPct(centroids(ob), centroids(gb), 15);
-    cmpStats.innerHTML =
-      `In view — buildings: <b>GeoNB ${gb.features?.length ?? 0}</b> vs <b>OSM ${ob.features.length}</b>; ` +
-      `roads: GeoNB ${gr.features?.length ?? 0} segments vs OSM ${oroads.features.length} ways.<br>` +
-      `Building overlap within 15 m: <b>${g2o}%</b> of GeoNB matched in OSM, <b>${o2g}%</b> the other way.`;
+    cmpStats.innerHTML = t('cmp.result', {
+      gb: gb.features?.length ?? 0, ob: ob.features.length, gr: gr.features?.length ?? 0, or: oroads.features.length, g2o, o2g,
+    });
   } catch {
-    cmpStats.textContent = 'One of the sources did not answer (Overpass is often at capacity) — pan or zoom to retry.';
+    cmpStats.textContent = t('cmp.retry');
   } finally {
     cmpLoading = false;
   }
@@ -689,7 +715,7 @@ map.on('moveend', () => {
 cmpBtn.addEventListener('click', () => {
   cmpOn = !cmpOn;
   cmpBtn.classList.toggle('on', cmpOn);
-  cmpBtn.textContent = cmpOn ? '🗺️ Hide OpenStreetMap overlay' : '🗺️ Overlay OpenStreetMap';
+  cmpBtn.textContent = t(cmpOn ? 'cmp.hide' : 'cmp.show');
   for (const id of ['cmp-geonb-roads', 'cmp-osm-roads', 'cmp-geonb-buildings', 'cmp-osm-buildings'])
     map.setLayoutProperty(id, 'visibility', cmpOn ? 'visible' : 'none');
   cmpStats.hidden = !cmpOn;
@@ -784,3 +810,102 @@ async function probeTiles() {
   } catch { /* archive unreachable: live ArcGIS path stays active */ }
 }
 map.on('load', probeTiles);
+
+// ---------- Language toggle ----------
+const langBtn = document.getElementById('lang-btn') as HTMLButtonElement;
+function refreshDynamicLabels() {
+  langBtn.textContent = getLang() === 'fr' ? 'EN' : 'FR';
+  tourBtn.textContent = t(touring ? 'tour.stop' : 'tour.start');
+  gmBtn.textContent = t(gmOn ? 'gm.exit' : 'gm.enter');
+  cmpBtn.textContent = t(cmpOn ? 'cmp.hide' : 'cmp.show');
+  if (hint?.textContent) hint.textContent = t('b3d.zoom');
+  if (gmOn) loadGmViewport();
+  if (cmpOn) loadCompare();
+}
+onLang(refreshDynamicLabels);
+refreshDynamicLabels();
+langBtn.addEventListener('click', () => {
+  if (touring) stopTour();
+  setLang(getLang() === 'fr' ? 'en' : 'fr', { persist: true });
+  // Keep an explicit ?lang= in step so a copied link opens in the language on screen.
+  const p = new URLSearchParams(location.search);
+  if (p.has('lang')) { p.set('lang', getLang()); history.replaceState(history.state, '', `?${p}${location.hash}`); }
+});
+
+// ---------- Toast ----------
+const toastEl = document.getElementById('toast')!;
+let toastTimer: number | undefined;
+function toast(msg: string) {
+  toastEl.textContent = msg;
+  toastEl.hidden = false;
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => { toastEl.hidden = true; }, 3200);
+}
+
+// ---------- Shareable state: position lives in the hash, layers in the query ----------
+let restoring = false;
+let land: ProtectedApi | null = null;
+const LAND_KEYS: LandKey[] = ['pna', 'crown', 'ecoregions', 'ecodistricts'];
+const layerBox = (key: LayerKey) => document.querySelector<HTMLInputElement>(`input[data-layer="${key}"]`);
+function saveState() {
+  if (restoring) return;
+  const layers = LAYER_KEYS.filter((k) => layerBox(k)?.checked);
+  const next = writeState(location.search, { base: currentBase, layers, pnaClasses: land?.getClasses() ?? ['I', 'II'] });
+  if (next !== location.search) history.replaceState(history.state, '', (next || location.pathname) + location.hash);
+}
+for (const key of LAYER_KEYS) layerBox(key)?.addEventListener('change', saveState);
+
+document.getElementById('share-btn')!.addEventListener('click', async () => {
+  saveState();
+  const p = new URLSearchParams(location.search);
+  p.set('lang', getLang());
+  const url = `${location.origin}${location.pathname}?${p.toString().replaceAll('%2C', ',')}${location.hash}`;
+  try { await navigator.clipboard.writeText(url); toast(t('share.copied')); }
+  catch { history.replaceState(history.state, '', url); toast(t('share.failed')); }
+});
+
+// ---------- Land & nature layers, search, measure, print ----------
+map.on('load', () => {
+  const measure = initMeasure(map, {});
+  const c1 = document.getElementById('pna-c1') as HTMLInputElement;
+  const c2 = document.getElementById('pna-c2') as HTMLInputElement;
+  const api = initProtected(map, {
+    statusEl: document.getElementById('land-status')!,
+    suppressClicks: () => measure.isActive(),
+    onChange: () => {
+      for (const key of LAND_KEYS) { const box = layerBox(key); if (box) box.checked = api.isOn(key); }
+      c1.checked = api.getClasses().includes('I');
+      c2.checked = api.getClasses().includes('II');
+      document.getElementById('pna-classes')!.hidden = !api.isOn('pna');
+      saveState();
+    },
+  });
+  land = api;
+  for (const key of LAND_KEYS)
+    layerBox(key)?.addEventListener('change', (e) => api.setLayer(key, (e.target as HTMLInputElement).checked));
+  const classesFromBoxes = () => api.setClasses([...(c1.checked ? ['I' as const] : []), ...(c2.checked ? ['II' as const] : [])]);
+  c1.addEventListener('change', classesFromBoxes);
+  c2.addEventListener('change', classesFromBoxes);
+  document.getElementById('pna-classes')!.hidden = true;
+
+  initSearch(map, { pnaIndex: api.pnaIndex, focusPna: (e) => { stopTour(); api.focusPna(e); } });
+  initPrint(map, {
+    legend: () => [
+      ...api.legend(),
+      ...(wetlandsOn ? [{ color: '#3f9d63', label: t('layer.wetlands') }] : []),
+      ...(contoursOn ? [{ color: '#c9a86a', label: t('layer.contours') }] : []),
+    ],
+  });
+
+  // Reopen whatever a shared link had switched on.
+  const state = parseState(location.search);
+  restoring = true;
+  currentBase = state.base;
+  syncBasemap();
+  api.setClasses(state.pnaClasses);
+  for (const key of state.layers) {
+    const box = layerBox(key);
+    if (box && !box.checked) { box.checked = true; box.dispatchEvent(new Event('change')); }
+  }
+  restoring = false;
+});
