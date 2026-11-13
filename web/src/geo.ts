@@ -270,3 +270,14 @@ export function parseUsDate(s: unknown): string | null {
   if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
   return `${m[3]}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
+
+/** Closest sounding to pt within maxM metres, or null. Linear scan — the
+ *  Fredericton reach holds ~2,400 soundings. */
+export function nearestSounding<T extends { pt: LngLat }>(list: T[], pt: LngLat, maxM: number): { item: T; dist: number } | null {
+  let best: T | null = null, bestD = maxM;
+  for (const s of list) {
+    const d = haversineM(s.pt, pt);
+    if (d <= bestD) { bestD = d; best = s; }
+  }
+  return best ? { item: best, dist: bestD } : null;
+}

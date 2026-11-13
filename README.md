@@ -69,7 +69,8 @@ tile index. More catalogue entries to come: civic addresses, parcels, DTDB.
   links and an English/French toggle. Also the GeoNB catalogue proper:
   property parcels with assessment lookup (click or PID/PAN search),
   imagery by year, 1 m LiDAR terrain with elevation profiles, flood
-  hazard mapping and local-government boundaries.
+  hazard mapping, local-government boundaries, and CHS bathymetry
+  (depth map plus measured riverbed soundings through Fredericton).
 - `tests/` — Python test suite (pytest) for the scripts and the bake
 - `docs/` — the GTA Fredericton map plan, the OSM-vs-GeoNB overlap study and the
   full-city data-extract guide

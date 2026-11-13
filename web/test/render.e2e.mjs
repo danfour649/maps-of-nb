@@ -131,6 +131,7 @@ try {
     else route.fulfill({ json: EMPTY_FC });
   });
   await page.route('**demotiles.maplibre.org**', (route) => route.abort());
+  await page.route('**nonna-geoserver**', (route) => route.fulfill({ body: TILE_PNG, contentType: 'image/png' }));
   await page.route('**s3.amazonaws.com**', (route) => route.fulfill({ body: TILE_PNG, contentType: 'image/png' }));
   await page.route('**/World_Imagery/**', (route) => route.fulfill({ body: TILE_PNG, contentType: 'image/png' }));
 
@@ -251,6 +252,22 @@ try {
   else console.log('ok: imagery-year and LiDAR terrain pickers add layers and reach the URL');
   await page.keyboard.press('Escape');
   await page.evaluate(() => document.querySelector('.maplibregl-popup-close-button')?.click());
+
+  // ---------- bathymetry: shipped soundings render and answer clicks ----------
+  await page.check('input[data-layer="bathy"]');
+  await page.evaluate(() => window.__map.jumpTo({ center: [-66.62918, 45.9638], zoom: 15 }));
+  const dots = await page.waitForFunction(() => {
+    const n = window.__map.queryRenderedFeatures({ layers: ['cat-soundings'] }).length;
+    return n > 0 ? n : false;
+  }, null, { timeout: 15000 }).then((h) => h.jsonValue()).catch(() => 0);
+  if (!dots) fail('no river soundings rendered');
+  await page.evaluate(() => window.__map.fire('click', { lngLat: { lng: -66.62918, lat: 45.9638 }, point: { x: 0, y: 0 } }));
+  await page.waitForSelector('.pp', { timeout: 8000 }).catch(() => undefined);
+  const depth = (await page.textContent('.pp').catch(() => '')) ?? '';
+  if (!/Riverbedabout 2\.7 m deep/.test(depth)) fail(`bathymetry popup missing the sounding depth: ${depth}`);
+  else console.log(`ok: ${dots} river soundings rendered; click reports the measured depth`);
+  await page.evaluate(() => document.querySelector('.maplibregl-popup-close-button')?.click());
+  await page.uncheck('input[data-layer="bathy"]');
 
   // ---------- measure ----------
   await page.click('#hud-toggle'); // collapse the panel so the map is clickable

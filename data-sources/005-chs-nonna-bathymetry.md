@@ -63,3 +63,23 @@ python3 scripts/import_bathymetry.py --shores /path/to/fredericton_osm.json
 
 Re-running re-fetches the WCS subsets unless cached TIFFs are
 present under `--cache`.
+
+## In the viewer (2026-11-13)
+
+- **Depth map, everywhere CHS has data:** the same GeoServer exposes the
+  grids as WMS (`/geoserver/wms`, layers `nonna:NONNA 100` / `nonna:NONNA 10`,
+  EPSG:3857, CORS open). It serves a pre-coloured picture (red = shallow,
+  blue = deep) with no legend and no values — `GetFeatureInfo` returns the
+  pixel's RGB, not a depth. The viewer draws NONNA 100 as the "Water depth"
+  overlay.
+- **Measured depths, Fredericton reach:** `scripts/bathymetry_to_geojson.py`
+  turns `sections_relcd.csv` back into lon/lat points (the importer's own
+  `game_to_geo`) with `d` = depth below the normal water surface and `bed` =
+  elevation relative to Chart Datum, written to
+  `web/public/bathymetry-fredericton.geojson` (2,388 points, generated — a
+  test fails if it drifts from the CSV). Clicking the river with the overlay
+  on reports the nearest sounding within 60 m. Depths carry the ±0.5 m
+  datum uncertainty described above.
+
+Licence: Open Government Licence – Canada; attribution to the Canadian
+Hydrographic Service. Not to be used for navigation.

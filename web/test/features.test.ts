@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   haversineM, pathLengthM, ringAreaM2, pointInGeometry, bboxOf, labelPoint, foldText, matchScore,
-  parseCoords, formatDistance, formatArea, tidyAddress, likePrefix, samplePath, profileStats, parsePropertyId, parseUsDate, type LngLat,
+  parseCoords, formatDistance, formatArea, tidyAddress, likePrefix, samplePath, profileStats, parsePropertyId, parseUsDate, nearestSounding, type LngLat,
 } from '../src/geo';
 import { toAssessment } from '../src/property';
 import { splitOwner, toPnaEntry, searchPna, type PnaEntry } from '../src/pna';
@@ -226,6 +226,27 @@ describe('elevation profile', () => {
   it('totals climb and drop, skipping gaps', () => {
     expect(profileStats([10, 14, null, 12, 20])).toEqual({ min: 10, max: 20, up: 12, down: 2 });
     expect(profileStats([null, null])).toBeNull();
+  });
+});
+
+describe('river soundings', () => {
+  const list = [{ pt: [-66.64, 45.96] as LngLat, d: 3 }, { pt: [-66.6395, 45.96] as LngLat, d: 5 }];
+  it('picks the nearest within range, and nothing beyond it', () => {
+    expect(nearestSounding(list, [-66.6396, 45.96], 60)?.item.d).toBe(5);
+    const hit = nearestSounding(list, [-66.6401, 45.96], 60)!;
+    expect(hit.item.d).toBe(3);
+    expect(hit.dist).toBeGreaterThan(7);
+    expect(hit.dist).toBeLessThan(8.5);
+    expect(nearestSounding(list, [-66.60, 45.96], 60)).toBeNull();
+    expect(nearestSounding([], [-66.64, 45.96], 60)).toBeNull();
+  });
+  it('the shipped file is points with depth and bed elevation', () => {
+    const gj = JSON.parse(readFileSync(join(fixtures, '..', '..', 'public', 'bathymetry-fredericton.geojson'), 'utf8'));
+    expect(gj.features.length).toBeGreaterThan(2000);
+    for (const f of gj.features.slice(0, 50)) {
+      expect(f.geometry.type).toBe('Point');
+      expect(f.properties.d).toBeCloseTo(2 - f.properties.bed, 2);
+    }
   });
 });
 

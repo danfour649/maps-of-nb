@@ -5,7 +5,7 @@
 // that is on (not just assessment), elevation at the click, and no layer that
 // is switched on by default only to swallow clicks.
 import * as maplibregl from 'maplibre-gl';
-import { bboxOf, labelPoint, parsePropertyId, type LngLat } from './geo';
+import { bboxOf, labelPoint, parsePropertyId, nearestSounding, type LngLat } from './geo';
 import { toAssessment, PAN_FIELDS, txt, type Assessment } from './property';
 import { t, getLang, locale, onLang } from './i18n';
 
@@ -19,7 +19,12 @@ const imageExport = (service: string) =>
   `${IMAGE}/${service}/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=512,512&format=jpgpng&f=image`;
 
 // ---------- registry ----------
-export type OverlayKey = 'parcels' | 'localgov' | 'roads' | 'psw' | 'flood';
+export type OverlayKey = 'parcels' | 'localgov' | 'roads' | 'psw' | 'flood' | 'bathy';
+// CHS renders its bathymetric grid to a depth-coloured picture (red = shallow,
+// blue = deep); the WMS carries no depth values, only pixels.
+const NONNA_WMS = 'https://nonna-geoserver.data.chs-shc.ca/geoserver/wms?service=WMS&version=1.1.1&request=GetMap' +
+  '&layers=nonna:NONNA%20100&styles=&srs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256&format=image/png&transparent=true';
+const SOUNDINGS_URL = '/bathymetry-fredericton.geojson';
 const OVERLAYS: Record<OverlayKey, { tiles: string; minzoom?: number; opacity: number; attribution: string }> = {
   // Scale limits below mirror the services' own (they draw nothing further out).
   parcels: { tiles: mapExport('GeoNB_SNB_Parcels'), minzoom: 13, opacity: 0.9, attribution: `Parcels, assessment ${SNB}` },
@@ -27,6 +32,7 @@ const OVERLAYS: Record<OverlayKey, { tiles: string; minzoom?: number; opacity: n
   roads: { tiles: mapExport('GeoNB_Basemap_NBRN'), opacity: 1, attribution: `Roads ${SNB}` },
   psw: { tiles: mapExport('GeoNB_ENV_Wetlands', '0,1'), minzoom: 11, opacity: 0.8, attribution: 'Wetlands © GNB Environment and Local Government' },
   flood: { tiles: mapExport('GeoNB_ENV_Flood', '2,3,4,5,7'), opacity: 0.7, attribution: 'Flood mapping © GNB Environment and Local Government' },
+  bathy: { tiles: NONNA_WMS, opacity: 0.75, attribution: 'Bathymetry © Canadian Hydrographic Service (NONNA) — not for navigation' },
 };
 export const OVERLAY_KEYS = Object.keys(OVERLAYS) as OverlayKey[];
 
@@ -122,7 +128,9 @@ export function initCatalog(
   map: maplibregl.Map,
   opts: { toast: (msg: string) => void; onChange: () => void; openPopupAt: (pt: LngLat) => void },
 ): CatalogApi {
-  const on: Record<OverlayKey, boolean> = { parcels: false, localgov: false, roads: false, psw: false, flood: false };
+  const on: Record<OverlayKey, boolean> = { parcels: false, localgov: false, roads: false, psw: false, flood: false, bathy: false };
+  let soundings: { pt: LngLat; d: number; bed: number }[] = [];
+  let soundingsLoad: Promise<void> | null = null;
   let vintage = '';
   let terrain = '';
   const imgSel = document.getElementById('img-select') as HTMLSelectElement;
@@ -136,6 +144,22 @@ export function initCatalog(
     map.addSource(`cat-${key}`, { type: 'raster', tileSize: 256, tiles: [o.tiles], attribution: o.attribution, ...(o.minzoom ? { minzoom: o.minzoom } : {}) });
     map.addLayer({ id: `cat-${key}`, type: 'raster', source: `cat-${key}`, layout: { visibility: 'none' }, paint: { 'raster-opacity': o.opacity } }, before('buildings-3d'));
   }
+  // Measured riverbed soundings for the Fredericton reach (CHS NONNA, via
+  // scripts/import_bathymetry.py): real depths, where the WMS has only colours.
+  map.addSource('cat-soundings', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'cat-soundings', type: 'circle', source: 'cat-soundings', minzoom: 11.5, layout: { visibility: 'none' },
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 1.6, 15, 4, 17, 7],
+      'circle-color': ['interpolate', ['linear'], ['get', 'd'], 2, '#c8f1ff', 4, '#5db7e8', 6, '#2a6fc4', 9, '#1a2f8f'],
+      'circle-stroke-color': 'rgba(8,12,16,0.7)', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 12, 0, 15, 0.8],
+    },
+  }, before('boundary-fill'));
+  const loadSoundings = () => (soundingsLoad ??= fetch(SOUNDINGS_URL).then((r) => r.json()).then((gj) => {
+    soundings = (gj.features ?? []).map((f: any) => ({ pt: f.geometry.coordinates as LngLat, d: f.properties.d, bed: f.properties.bed }));
+    (map.getSource('cat-soundings') as maplibregl.GeoJSONSource).setData(gj);
+  }).catch(() => { soundingsLoad = null; }));
+
   map.addSource('cat-focus', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({ id: 'cat-focus-fill', type: 'fill', source: 'cat-focus', paint: { 'fill-color': '#7fd0ff', 'fill-opacity': 0.18 } }, before('boundary-fill'));
   map.addLayer({ id: 'cat-focus-line', type: 'line', source: 'cat-focus', paint: { 'line-color': '#7fd0ff', 'line-width': 2.5 } }, before('boundary-fill'));
@@ -260,6 +284,18 @@ export function initCatalog(
         if (rsc) dd.append(el('span', 'pp-dim', ` · ${txt(fr ? rsc.Name : rsc.Region)}`));
       });
     }
+    if (on.bathy) {
+      // Transects are ~300 m apart, so any point in the channel is within ~150 m
+      // of one; say how far the reading is from the click rather than pretend.
+      const hit = nearestSounding(soundings, pt, 160);
+      if (hit) {
+        const one = (v: number) => v.toLocaleString(locale(), { maximumFractionDigits: 1 });
+        const dd = el('dd', undefined, t('bathy.depth', { d: one(hit.item.d) }));
+        dd.append(el('span', 'pp-dim', ` · ${t('bathy.bed', { z: one(hit.item.bed) })}`));
+        if (hit.dist > 15) dd.append(el('span', 'pp-dim', ` · ${t('bathy.away', { m: Math.round(hit.dist / 10) * 10 })}`));
+        ctx.append(el('dt', undefined, t('bathy.label')), dd);
+      }
+    }
     const dd = el('dd', undefined, '…');
     ctx.append(el('dt', undefined, t('elev.label')), dd);
     sampleElevations([pt]).then(([z]) => {
@@ -292,7 +328,7 @@ export function initCatalog(
   }
 
   const api: CatalogApi = {
-    identifyActive: () => on.parcels || on.localgov || !!terrain,
+    identifyActive: () => on.parcels || on.localgov || on.bathy || !!terrain,
     identify,
     clearFocus: () => focus([]),
     searchProperty,
@@ -303,6 +339,10 @@ export function initCatalog(
       const min = OVERLAYS[key].minzoom;
       if (value && min && map.getZoom() < min) opts.toast(t('cat.zoomin'));
       if (!value && key === 'parcels') focus([]);
+      if (key === 'bathy') {
+        map.setLayoutProperty('cat-soundings', 'visibility', value ? 'visible' : 'none');
+        if (value) void loadSoundings();
+      }
       opts.onChange();
     },
     isOn: (key) => on[key],
@@ -315,6 +355,7 @@ export function initCatalog(
       if (on.parcels) out.push({ color: '#f6b26b', label: t('layer.parcels') });
       if (on.flood) out.push({ color: '#3fae2a', label: t('layer.flood') });
       if (on.psw) out.push({ color: '#2fa39b', label: t('layer.psw') });
+      if (on.bathy) out.push({ color: '#2a6fc4', label: t('layer.bathy') });
       return out;
     },
   };
