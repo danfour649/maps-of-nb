@@ -7,6 +7,7 @@ import { initProtected, type ProtectedApi, type LandKey } from './protected';
 import { initSearch } from './search';
 import { initMeasure } from './measure';
 import { initPrint } from './print';
+import { initCatalog, sampleElevations, OVERLAY_KEYS, type CatalogApi } from './catalog';
 
 // Baked vector tiles (scripts/bake_tiles.py) served as a static archive.
 // When reachable, the heavy layers render from tiles; otherwise the viewer
@@ -57,6 +58,11 @@ const style: maplibregl.StyleSpecification = {
       tiles: [exportTile('GeoNB_Basemap_Topo', false)],
       attribution: 'Basemap © GeoNB / Service New Brunswick',
     },
+    'geonb-grey': {
+      type: 'raster', tileSize: 256, maxzoom: 18,
+      tiles: [exportTile('GeoNB_Basemap_Grey', false)],
+      attribution: 'Basemap © GeoNB / Service New Brunswick',
+    },
     'esri-imagery': {
       type: 'raster', tileSize: 256, maxzoom: 18,
       tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
@@ -88,6 +94,7 @@ const style: maplibregl.StyleSpecification = {
   layers: [
     { id: 'geonb-imagery', type: 'raster', source: 'geonb-imagery', layout: { visibility: 'none' } },
     { id: 'geonb-topo', type: 'raster', source: 'geonb-topo', layout: { visibility: 'none' } },
+    { id: 'geonb-grey', type: 'raster', source: 'geonb-grey', layout: { visibility: 'none' } },
     { id: 'esri-imagery', type: 'raster', source: 'esri-imagery', layout: { visibility: 'visible' } },
     {
       id: 'geonb-imagery-year', type: 'raster', source: 'geonb-imagery-year',
@@ -267,7 +274,7 @@ map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAc
 // ---------- Basemap + imagery-year: one place decides what the rasters show ----------
 // (Leaving game-mesh mode used to force GeoNB imagery on regardless of the
 // selected basemap, and left the year overlay off while its box stayed ticked.)
-const BASE_LAYER: Record<BaseKey, string> = { esri: 'esri-imagery', geonb: 'geonb-imagery', topo: 'geonb-topo' };
+const BASE_LAYER: Record<BaseKey, string> = { esri: 'esri-imagery', geonb: 'geonb-imagery', topo: 'geonb-topo', grey: 'geonb-grey' };
 let currentBase: BaseKey = 'esri';
 let yearOn = false;
 function syncBasemap() {
@@ -845,12 +852,16 @@ function toast(msg: string) {
 // ---------- Shareable state: position lives in the hash, layers in the query ----------
 let restoring = false;
 let land: ProtectedApi | null = null;
+let catalog: CatalogApi | null = null;
 const LAND_KEYS: LandKey[] = ['pna', 'crown', 'ecoregions', 'ecodistricts'];
 const layerBox = (key: LayerKey) => document.querySelector<HTMLInputElement>(`input[data-layer="${key}"]`);
 function saveState() {
   if (restoring) return;
   const layers = LAYER_KEYS.filter((k) => layerBox(k)?.checked);
-  const next = writeState(location.search, { base: currentBase, layers, pnaClasses: land?.getClasses() ?? ['I', 'II'] });
+  const next = writeState(location.search, {
+    base: currentBase, layers, pnaClasses: land?.getClasses() ?? ['I', 'II'],
+    imagery: catalog?.getVintage() ?? '', terrain: catalog?.getTerrain() ?? '',
+  });
   if (next !== location.search) history.replaceState(history.state, '', (next || location.pathname) + location.hash);
 }
 for (const key of LAYER_KEYS) layerBox(key)?.addEventListener('change', saveState);
@@ -866,11 +877,12 @@ document.getElementById('share-btn')!.addEventListener('click', async () => {
 
 // ---------- Land & nature layers, search, measure, print ----------
 map.on('load', () => {
-  const measure = initMeasure(map, {});
+  const measure = initMeasure(map, { elevations: sampleElevations });
   const c1 = document.getElementById('pna-c1') as HTMLInputElement;
   const c2 = document.getElementById('pna-c2') as HTMLInputElement;
   const api = initProtected(map, {
     statusEl: document.getElementById('land-status')!,
+    extra: { active: () => cat.identifyActive(), identify: (pt, root, ctx) => cat.identify(pt, root, ctx), clear: () => cat.clearFocus() },
     suppressClicks: () => measure.isActive(),
     onChange: () => {
       for (const key of LAND_KEYS) { const box = layerBox(key); if (box) box.checked = api.isOn(key); }
@@ -881,6 +893,17 @@ map.on('load', () => {
     },
   });
   land = api;
+  const cat = initCatalog(map, {
+    toast,
+    openPopupAt: (pt) => api.openPopupAt(pt),
+    onChange: () => {
+      for (const key of OVERLAY_KEYS) { const box = layerBox(key); if (box) box.checked = cat.isOn(key); }
+      saveState();
+    },
+  });
+  catalog = cat;
+  for (const key of OVERLAY_KEYS)
+    layerBox(key)?.addEventListener('change', (e) => cat.setOverlay(key, (e.target as HTMLInputElement).checked));
   for (const key of LAND_KEYS)
     layerBox(key)?.addEventListener('change', (e) => api.setLayer(key, (e.target as HTMLInputElement).checked));
   const classesFromBoxes = () => api.setClasses([...(c1.checked ? ['I' as const] : []), ...(c2.checked ? ['II' as const] : [])]);
@@ -888,10 +911,14 @@ map.on('load', () => {
   c2.addEventListener('change', classesFromBoxes);
   document.getElementById('pna-classes')!.hidden = true;
 
-  initSearch(map, { pnaIndex: api.pnaIndex, focusPna: (e) => { stopTour(); api.focusPna(e); } });
+  initSearch(map, {
+    pnaIndex: api.pnaIndex, focusPna: (e) => { stopTour(); api.focusPna(e); },
+    extra: (q) => cat.searchProperty(q),
+  });
   initPrint(map, {
     legend: () => [
       ...api.legend(),
+      ...cat.legend(),
       ...(wetlandsOn ? [{ color: '#3f9d63', label: t('layer.wetlands') }] : []),
       ...(contoursOn ? [{ color: '#c9a86a', label: t('layer.contours') }] : []),
     ],
@@ -903,6 +930,8 @@ map.on('load', () => {
   currentBase = state.base;
   syncBasemap();
   api.setClasses(state.pnaClasses);
+  cat.setVintage(state.imagery);
+  cat.setTerrain(state.terrain);
   for (const key of state.layers) {
     const box = layerBox(key);
     if (box && !box.checked) { box.checked = true; box.dispatchEvent(new Event('change')); }

@@ -223,3 +223,50 @@ export function tidyAddress(text: string): string {
 export function likePrefix(query: string): string {
   return query.trim().toUpperCase().replace(/[%_]/g, '').replace(/'/g, "''");
 }
+
+// ---------- Elevation profile + property-number helpers ----------
+
+/** n points spaced evenly along a path, each with its distance from the
+ *  start in metres. Vertices are not guaranteed to be hit; n >= 2. */
+export function samplePath(pts: LngLat[], n: number): { pt: LngLat; d: number }[] {
+  if (pts.length < 2 || n < 2) return [];
+  const seg = pts.slice(1).map((p, i) => haversineM(pts[i], p));
+  const total = seg.reduce((a, b) => a + b, 0);
+  if (!(total > 0)) return [];
+  const out: { pt: LngLat; d: number }[] = [];
+  let i = 0, before = 0;
+  for (let k = 0; k < n; k++) {
+    const d = (total * k) / (n - 1);
+    while (i < seg.length - 1 && d > before + seg[i]) { before += seg[i]; i++; }
+    const f = seg[i] > 0 ? Math.min(1, (d - before) / seg[i]) : 0;
+    out.push({ pt: [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f], d });
+  }
+  return out;
+}
+
+/** Min / max / total climb and drop of an elevation series; gaps (null) are skipped. */
+export function profileStats(elev: (number | null)[]): { min: number; max: number; up: number; down: number } | null {
+  const v = elev.filter((e): e is number => e !== null && Number.isFinite(e));
+  if (!v.length) return null;
+  let up = 0, down = 0;
+  for (let i = 1; i < v.length; i++) { const dz = v[i] - v[i - 1]; if (dz > 0) up += dz; else down -= dz; }
+  return { min: Math.min(...v), max: Math.max(...v), up, down };
+}
+
+/** A typed property number: "PID 01460625", "pan 887339" or a bare 4-8 digit
+ *  number. Returns the integer the services index on, or null. */
+export function parsePropertyId(q: string): { n: number; kind: 'pid' | 'pan' | 'either' } | null {
+  const m = q.trim().match(/^(pid|pan|nid|npe)?\s*[:#]?\s*(\d{4,8})$/i);
+  if (!m) return null;
+  const tag = m[1]?.toLowerCase();
+  return { n: parseInt(m[2], 10), kind: tag === 'pid' || tag === 'nid' ? 'pid' : tag ? 'pan' : 'either' };
+}
+
+/** GeoNB stores dates as "7/9/2019" (month/day/year) strings. ISO out, or null. */
+export function parseUsDate(s: unknown): string | null {
+  const m = String(s ?? '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const mo = Number(m[1]), d = Number(m[2]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return `${m[3]}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}

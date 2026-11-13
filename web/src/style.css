@@ -177,3 +177,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 @media print {
   #hud, #caption, #measure-panel, #toast, .maplibregl-control-container { display: none !important; }
 }
+
+/* ---------- catalogue pickers, property popup, elevation profile ---------- */
+.seg { flex-wrap: wrap; }
+.pick { display: grid; grid-template-columns: 1fr; gap: 4px; margin: 9px 0; }
+.pick select {
+  font: inherit; font-size: 12.5px; color: #e8eef4; background: #0b1218; border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px; height: 30px; padding: 0 7px; width: 100%; min-width: 0;
+}
+.pick input[type=range] { width: 100%; margin: 2px 0 0; accent-color: #7fd0ff; }
+.pp-link { display: inline-block; margin-top: 8px; color: #7fd0ff; font-size: 12px; }
+#measure-panel { flex-direction: column; gap: 8px; align-items: stretch; }
+#measure-readout { text-align: center; }
+.mp-btns { justify-content: center; flex-wrap: wrap; }
+#measure-chart { width: min(340px, calc(100vw - 52px)); font-size: 11.5px; color: #b9c7d3; text-align: center; }
+#measure-chart svg { display: block; width: 100%; height: auto; background: rgba(255,255,255,0.04); border-radius: 6px; }
+.prof-line { fill: none; stroke: #7fd0ff; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.prof-area { fill: rgba(127,208,255,0.18); }
+.prof-cap { margin-top: 4px; font-variant-numeric: tabular-nums; }

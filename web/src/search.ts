@@ -7,7 +7,7 @@
 //   4. civic addresses and streets (GeoNB composite geocoder)
 // Everything stays inside New Brunswick's own services — no world geocoder.
 import * as maplibregl from 'maplibre-gl';
-import { parseCoords, foldText, tidyAddress, likePrefix, type LngLat } from './geo';
+import { parseCoords, parsePropertyId, foldText, tidyAddress, likePrefix, type LngLat } from './geo';
 import { searchPna, pnaName, type PnaEntry } from './pna';
 import { t, getLang, onLang } from './i18n';
 
@@ -18,7 +18,11 @@ type Result = { group: string; label: string; sub?: string; run: () => void | Pr
 
 export function initSearch(
   map: maplibregl.Map,
-  opts: { pnaIndex: () => Promise<PnaEntry[]>; focusPna: (e: PnaEntry) => void },
+  opts: {
+    pnaIndex: () => Promise<PnaEntry[]>; focusPna: (e: PnaEntry) => void;
+    /** Extra instant results (property numbers). */
+    extra?: (q: string) => Result[];
+  },
 ) {
   const box = document.getElementById('search')!;
   const input = document.getElementById('search-input') as HTMLInputElement;
@@ -38,7 +42,7 @@ export function initSearch(
   };
 
   function localResults(q: string): Result[] {
-    const out: Result[] = [];
+    const out: Result[] = [...(opts.extra?.(q).map((r) => ({ ...r, run: () => { marker.remove(); return r.run(); } })) ?? [])];
     const pt = parseCoords(q);
     if (pt) {
       const v = `${pt[1].toFixed(5)}, ${pt[0].toFixed(5)}`;
@@ -159,7 +163,7 @@ export function initSearch(
     window.clearTimeout(timer);
     abort?.abort();
     const mine = ++seq;
-    const wantsRemote = q.trim().length >= 3 && !parseCoords(q);
+    const wantsRemote = q.trim().length >= 3 && !parseCoords(q) && !parsePropertyId(q);
     remote = { q, places: [], addresses: [], pending: wantsRemote };
     render(q);
     if (!wantsRemote) return;

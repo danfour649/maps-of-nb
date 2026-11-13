@@ -15,7 +15,11 @@
 //   6. search finds an area by its French name, frames it and opens one popup
 //      with the cleaned-up ownership, ecoregion and Crown-land answer;
 //   7. the French toggle relabels the UI; the URL carries the layer state;
-//   8. measuring reports a distance; print/export downloads a real PDF.
+//   8. measuring reports a distance; print/export downloads a real PDF;
+//   9. the GeoNB catalogue: a click on a parcel answers with its assessment,
+//      PID, local government and LiDAR elevation; a typed PID finds it; the
+//      imagery-year and terrain pickers add their layers and reach the URL;
+//      the measured path gets an elevation profile.
 //
 // Run: npm run build && npm run test:e2e
 // First run downloads chrome-headless-shell (~120 MB) via @puppeteer/browsers.
@@ -38,6 +42,12 @@ const pna1 = JSON.parse(await readFile(join(here, 'fixtures', 'pna-class1.json')
 const pna2 = JSON.parse(await readFile(join(here, 'fixtures', 'pna-class2.json'), 'utf8'));
 const ecoregions = JSON.parse(await readFile(join(here, 'fixtures', 'ecoregions.json'), 'utf8'));
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
+const lot = { type: 'Polygon', coordinates: [[[-66.6452, 45.9478], [-66.6442, 45.9478], [-66.6442, 45.9484], [-66.6452, 45.9484], [-66.6452, 45.9478]]] };
+const assessment = {
+  type: 'FeatureCollection',
+  features: [{ type: 'Feature', geometry: lot, properties: { Pan: '00887339', Location: '706 GRAHAM AVE', Descript: 'HOUSE & LOT', TA_Desc: 'Fredericton', Assess_Yr: '2026', Trans_Date: '7/9/2019', Sale_Val: 310000, Assess_Val: '439500', Tax_Levy: '8140.86' } }],
+};
+const parcel = { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: lot, properties: { PID: '01460625', COUNTY: 'York', Titles_Status: 'Land Titles' } }] };
 const cityBoundary = {
   type: 'FeatureCollection',
   features: [{ type: 'Feature', properties: { Name: 'The City of Fredericton' }, geometry: { type: 'Polygon', coordinates: [[[-66.75, 45.9], [-66.55, 45.9], [-66.55, 46.02], [-66.75, 46.02], [-66.75, 45.9]]] } }],
@@ -92,6 +102,16 @@ try {
   await page.route('**/fredericton.pmtiles', (route) => route.abort());
   await page.route('**geonb.snb.ca**', (route) => {
     const url = route.request().url();
+    if (url.includes('/getSamples')) {
+      const pts = JSON.parse(new URLSearchParams(route.request().postData() ?? '').get('geometry') ?? '{"points":[]}').points;
+      return route.fulfill({ json: { samples: pts.map((_, i) => ({ locationId: i, value: String(10 + (i % 7)) })) } });
+    }
+    if (url.includes('/exportImage?')) return route.fulfill({ body: TILE_PNG, contentType: 'image/png' });
+    if (url.includes('GeoNB_SNB_Pan/MapServer/0/query')) return route.fulfill({ json: assessment });
+    if (url.includes('GeoNB_SNB_Parcels/MapServer/0/query')) return route.fulfill({ json: parcel });
+    if (url.includes('Local_Governance/MapServer/8/query') && url.includes('OFFICIAL_E'))
+      return route.fulfill({ json: { features: [{ attributes: { OFFICIAL_E: 'The City of Fredericton', OFFICIAL_F: 'The City of Fredericton' } }] } });
+    if (url.includes('Local_Governance/MapServer/') && url.includes('f=json')) return route.fulfill({ json: { features: [] } });
     if (url.includes('GeoNB_SNB_Buildings')) route.fulfill({ json: buildings });
     else if (url.includes('GeoNB_Basemap_NBRN')) route.fulfill({ json: roads });
     else if (url.includes('/export?')) route.fulfill({ body: TILE_PNG, contentType: 'image/png' });
@@ -211,6 +231,27 @@ try {
   else console.log('ok: French toggle relabels the UI');
   await page.click('#lang-btn');
 
+  // ---------- GeoNB catalogue: property identify, PID search, pickers ----------
+  await page.uncheck('#pna-toggle'); await page.uncheck('#crown-toggle');
+  await page.check('input[data-layer="localgov"]');
+  await page.fill('#search-input', 'PID 01460625');
+  await page.waitForSelector('#search-results .sr-item', { timeout: 8000 });
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => /706 GRAHAM AVE/.test(document.querySelector('.pp')?.textContent ?? '') && /Elevation\d/.test(document.querySelector('.pp')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => undefined);
+  const prop = (await page.textContent('.pp').catch(() => '')) ?? '';
+  for (const want of ['706 GRAHAM AVE', 'HOUSE & LOT', '$439,500', '$8,140.86', 'Jul 9, 2019', '$310,000', '00887339', '01460625', 'Land Titles', 'The City of Fredericton', 'Elevation10 m'])
+    if (!prop.includes(want)) fail(`property popup is missing "${want}": ${prop}`);
+  if (!(await page.isChecked('input[data-layer="parcels"]'))) fail('PID search did not switch the parcels layer on');
+  console.log('ok: PID search → popup with assessment, levy, last sale, PID, local government and elevation');
+
+  await page.selectOption('#img-select', '2023f');
+  await page.selectOption('#terrain-select', 'hillshade');
+  const picked = await page.evaluate(() => [!!window.__map.getLayer('cat-img'), !!window.__map.getLayer('cat-terrain'), location.search]);
+  if (!picked[0] || !picked[1] || !picked[2].includes('img=2023f') || !picked[2].includes('terrain=hillshade')) fail(`imagery/terrain pickers did not apply: ${JSON.stringify(picked)}`);
+  else console.log('ok: imagery-year and LiDAR terrain pickers add layers and reach the URL');
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => document.querySelector('.maplibregl-popup-close-button')?.click());
+
   // ---------- measure ----------
   await page.click('#hud-toggle'); // collapse the panel so the map is clickable
   await page.evaluate(() => document.getElementById('measure-btn').click());
@@ -218,6 +259,10 @@ try {
   const reading = await page.textContent('#measure-readout');
   if (!/Distance: [\d.]+ k?m · Area if closed: [\d.]+ (m²|ha|km²)/.test(reading ?? '')) fail(`unexpected measure readout: ${reading}`);
   else console.log(`ok: measure reads "${reading}"`);
+  await page.click('#measure-profile');
+  await page.waitForSelector('#measure-chart svg polyline', { timeout: 10000 })
+    .then(async () => console.log(`ok: elevation profile drawn ("${await page.textContent('.prof-cap')}")`))
+    .catch(() => fail('elevation profile did not draw'));
   await page.click('#measure-done');
 
   // ---------- print / export ----------

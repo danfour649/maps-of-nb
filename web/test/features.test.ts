@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   haversineM, pathLengthM, ringAreaM2, pointInGeometry, bboxOf, labelPoint, foldText, matchScore,
-  parseCoords, formatDistance, formatArea, tidyAddress, likePrefix, type LngLat,
+  parseCoords, formatDistance, formatArea, tidyAddress, likePrefix, samplePath, profileStats, parsePropertyId, parseUsDate, type LngLat,
 } from '../src/geo';
+import { toAssessment } from '../src/property';
 import { splitOwner, toPnaEntry, searchPna, type PnaEntry } from '../src/pna';
 import { buildPdf, pageSizePt, niceScale } from '../src/pdf';
 import { parseState, writeState, DEFAULT_STATE } from '../src/urlstate';
@@ -166,16 +167,17 @@ describe('pdf export', () => {
 
 describe('shareable state', () => {
   it('round-trips layers, basemap and class filter', () => {
-    const q = writeState('', { base: 'topo', layers: ['crown', 'pna'], pnaClasses: ['I'] });
-    expect(q).toBe('?base=topo&layers=pna,crown&pna=I');
-    expect(parseState(q)).toEqual({ base: 'topo', layers: ['pna', 'crown'], pnaClasses: ['I'] });
+    const state = { base: 'grey' as const, layers: ['pna' as const, 'crown' as const, 'parcels' as const], pnaClasses: ['I' as const], imagery: '2023f', terrain: 'hillshade' };
+    const q = writeState('', { ...state, layers: ['parcels', 'crown', 'pna'] });
+    expect(q).toBe('?base=grey&layers=pna,crown,parcels&pna=I&img=2023f&terrain=hillshade');
+    expect(parseState(q)).toEqual(state);
   });
   it('keeps plain links plain and foreign params intact', () => {
     expect(writeState('', DEFAULT_STATE)).toBe('');
     expect(writeState('?lang=fr&base=topo', DEFAULT_STATE)).toBe('?lang=fr');
   });
   it('ignores junk', () => {
-    expect(parseState('?base=evil&layers=pna,<script>,nope&pna=III')).toEqual({ base: 'esri', layers: ['pna'], pnaClasses: ['I', 'II'] });
+    expect(parseState('?base=evil&layers=pna,<script>,nope&pna=III&img=<x>&terrain=a/b')).toEqual({ ...DEFAULT_STATE, layers: ['pna'] });
     expect(parseState('?pna=none').pnaClasses).toEqual([]);
   });
 });
@@ -204,5 +206,47 @@ describe('i18n', () => {
     expect(detectLang('', null, 'fr-CA')).toBe('fr');
     expect(detectLang('?lang=xx', null, 'en-US')).toBe('en');
     expect(detectLang('', null, undefined)).toBe('en');
+  });
+});
+
+describe('elevation profile', () => {
+  const path: LngLat[] = [[-66.64, 45.96], [-66.63, 45.96], [-66.63, 45.97]];
+  it('samples evenly from the first vertex to the last', () => {
+    const s = samplePath(path, 11);
+    expect(s).toHaveLength(11);
+    expect(s[0].pt).toEqual(path[0]);
+    expect(s[10].pt[0]).toBeCloseTo(path[2][0], 9);
+    expect(s[10].pt[1]).toBeCloseTo(path[2][1], 9);
+    expect(s[10].d).toBeCloseTo(pathLengthM(path), 6);
+    const steps = s.slice(1).map((x, i) => x.d - s[i].d);
+    steps.forEach((st) => expect(st).toBeCloseTo(steps[0], 6));
+    expect(samplePath([path[0]], 5)).toEqual([]);
+    expect(samplePath([path[0], path[0]], 5)).toEqual([]);
+  });
+  it('totals climb and drop, skipping gaps', () => {
+    expect(profileStats([10, 14, null, 12, 20])).toEqual({ min: 10, max: 20, up: 12, down: 2 });
+    expect(profileStats([null, null])).toBeNull();
+  });
+});
+
+describe('property records', () => {
+  it('recognises typed property numbers', () => {
+    expect(parsePropertyId('01460625')).toEqual({ n: 1460625, kind: 'either' });
+    expect(parsePropertyId('PID 01460625')).toEqual({ n: 1460625, kind: 'pid' });
+    expect(parsePropertyId('pan: 887339')).toEqual({ n: 887339, kind: 'pan' });
+    expect(parsePropertyId('96 Regent St')).toBeNull();
+    expect(parsePropertyId('123')).toBeNull(); // too short: a civic number, not a PID
+    expect(parsePropertyId('45.96, -66.64')).toBeNull();
+  });
+  it('reads the service’s month/day/year dates', () => {
+    expect(parseUsDate('7/9/2019')).toBe('2019-07-09');
+    expect(parseUsDate('10/3/2011')).toBe('2011-10-03');
+    expect(parseUsDate('13/40/2011')).toBeNull();
+    expect(parseUsDate(null)).toBeNull();
+  });
+  it('turns string money into numbers and keeps blanks blank', () => {
+    const a = toAssessment({ geometry: null, properties: { Pan: '00887347', Location: '690 GRAHAM AVE', Descript: 'APT BLDG & LOT', TA_Desc: 'Fredericton', Assess_Yr: '2026', Trans_Date: null, Sale_Val: null, Assess_Val: '1646200', Tax_Levy: '25994.53' } });
+    expect(a).toMatchObject({ pan: '00887347', location: '690 GRAHAM AVE', assessed: 1646200, levy: 25994.53, saleDate: null, salePrice: null, year: '2026' });
+    expect(toAssessment({ properties: { Assess_Val: '', Tax_Levy: 'n/a' } })).toMatchObject({ assessed: null, levy: null });
   });
 });

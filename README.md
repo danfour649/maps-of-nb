@@ -41,6 +41,7 @@ what it's good for.
 | 004 | [GeoNB LiDAR](data-sources/004-geonb-lidar.md) | Province-wide LiDAR point clouds and derived terrain |
 | 005 | [CHS NONNA bathymetry](data-sources/005-chs-nonna-bathymetry.md) | Riverbed depths for the Saint John River transects |
 | 006 | [Protected Natural Areas, Crown land, ecoregions](data-sources/006-nb-protected-natural-areas.md) | 208 protected areas (Class I / II), Crown tenure and ecological regions — province-wide |
+| 007 | [GeoNB property, imagery by year, LiDAR elevation, flood](data-sources/007-geonb-property-imagery-elevation.md) | Parcels and assessment, 17 imagery vintages (2014–2025), 1 m hillshades and DEM sampling, flood hazard mapping, local governance |
 
 Also in active use via GeoNB's ArcGIS services: LiDAR-derived building
 footprints with measured heights, the provincial road network (NBRN) with
@@ -65,7 +66,10 @@ tile index. More catalogue entries to come: civic addresses, parcels, DTDB.
   Province-wide: Protected Natural Areas, Crown land, ecoregions and
   ecodistricts, with search (protected areas, place names, addresses,
   coordinates), a measure tool, client-side PDF/PNG export, shareable
-  links and an English/French toggle.
+  links and an English/French toggle. Also the GeoNB catalogue proper:
+  property parcels with assessment lookup (click or PID/PAN search),
+  imagery by year, 1 m LiDAR terrain with elevation profiles, flood
+  hazard mapping and local-government boundaries.
 - `tests/` — Python test suite (pytest) for the scripts and the bake
 - `docs/` — the GTA Fredericton map plan, the OSM-vs-GeoNB overlap study and the
   full-city data-extract guide

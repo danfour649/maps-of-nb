@@ -58,13 +58,19 @@ export type ProtectedApi = {
   pnaIndex(): Promise<PnaEntry[]>;
   /** Switch the layer on, frame the area and open its popup. */
   focusPna(entry: PnaEntry): void;
+  /** Ask every active layer about a point and show the answers. */
+  openPopupAt(pt: LngLat): void;
   /** Swatches for whatever is switched on (print legend). */
   legend(): { color: string; label: string }[];
 };
 
 export function initProtected(
   map: maplibregl.Map,
-  opts: { statusEl: HTMLElement; suppressClicks: () => boolean; onChange?: () => void },
+  opts: {
+    statusEl: HTMLElement; suppressClicks: () => boolean; onChange?: () => void;
+    /** Other identify sources (property, governance, elevation) sharing this popup. */
+    extra?: { active(): boolean; identify(pt: LngLat, root: HTMLElement, ctx: HTMLElement): void; clear(): void };
+  },
 ): ProtectedApi {
   const on: Record<LandKey, boolean> = { pna: false, crown: false, ecoregions: false, ecodistricts: false };
   let classes: ('I' | 'II')[] = ['I', 'II'];
@@ -221,7 +227,7 @@ export function initProtected(
 
   // ---------- popup ----------
   const popup = new maplibregl.Popup({ maxWidth: '320px', className: 'land-popup' });
-  popup.on('close', () => geo('pna-focus')?.setData(EMPTY));
+  popup.on('close', () => { geo('pna-focus')?.setData(EMPTY); opts.extra?.clear(); });
 
   const el = (tag: string, cls?: string, text?: string) => {
     const n = document.createElement(tag);
@@ -296,9 +302,11 @@ export function initProtected(
         if (r.crown && r.holder != null) dd.append(el('span', 'pp-dim', ` · ${t('crown.holder', { n: r.holder })}`));
       }).catch(() => { if (seq === crownSeq) dd.textContent = t('crown.unknown'); });
     }
+    // Anything else that is switched on answers in the same popup; elevation rides along.
+    if (opts.extra && (opts.extra.active() || root.childElementCount || ctx.childElementCount)) opts.extra.identify(pt, root, ctx);
     if (!root.childElementCount && !ctx.childElementCount) { popup.remove(); return; }
     if (ctx.childElementCount) {
-      if (!hits.length) root.append(el('div', 'pp-kind', t('popup.here')));
+      if (!root.childElementCount) root.append(el('div', 'pp-kind', t('popup.here')));
       root.append(ctx);
     }
     popup.setLngLat(pt).setDOMContent(root).addTo(map);
@@ -306,7 +314,7 @@ export function initProtected(
 
   map.on('click', (e) => {
     if (opts.suppressClicks()) return;
-    if (!on.pna && !on.crown && !on.ecoregions && !on.ecodistricts) return;
+    if (!on.pna && !on.crown && !on.ecoregions && !on.ecodistricts && !opts.extra?.active()) return;
     showPopupAt([e.lngLat.lng, e.lngLat.lat]);
   });
   map.on('mousemove', 'pna-fill', () => { if (!opts.suppressClicks()) map.getCanvas().style.cursor = 'pointer'; });
@@ -332,6 +340,7 @@ export function initProtected(
       fit(entry);
       showPopupAt(entry.label, entry);
     },
+    openPopupAt: (pt) => showPopupAt(pt),
     legend() {
       const out: { color: string; label: string }[] = [];
       if (on.pna && classes.includes('I')) out.push({ color: PNA_COLORS.I, label: t('pna.c1') });

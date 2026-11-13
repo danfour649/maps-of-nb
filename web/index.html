@@ -23,7 +23,7 @@
         <div id="search" role="search">
           <input id="search-input" type="search" autocomplete="off" spellcheck="false" enterkeyhint="search"
             role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-results"
-            placeholder="Search places, addresses, protected areas…" aria-label="Search the map"
+            placeholder="Search places, addresses, PID / PAN…" aria-label="Search the map"
             data-i18n-attr="placeholder:search.placeholder;aria-label:search.label" />
           <button id="search-clear" type="button" hidden aria-label="Clear search" data-i18n-attr="aria-label:search.clear">×</button>
           <ul id="search-results" role="listbox" hidden></ul>
@@ -35,9 +35,28 @@
           <div class="seg" id="basemap-seg">
             <button data-base="esri" class="on" data-i18n="basemap.esri">Esri imagery</button>
             <button data-base="geonb" data-i18n="basemap.geonb">GeoNB imagery</button>
-            <button data-base="topo" data-i18n="basemap.topo">GeoNB topo</button>
+            <button data-base="topo" data-i18n="basemap.topo">Topo</button>
+            <button data-base="grey" data-i18n="basemap.grey">Grey</button>
           </div>
         </div>
+        <div class="pick">
+          <label class="label" for="img-select" data-i18n="img.label">Imagery by year</label>
+          <select id="img-select"></select>
+          <input type="range" id="img-opacity" min="0" max="100" value="100" hidden aria-label="Imagery opacity" data-i18n-attr="aria-label:img.opacity;title:img.opacity" />
+        </div>
+        <div class="pick">
+          <label class="label" for="terrain-select" data-i18n="terrain.label">LiDAR terrain (1 m)</label>
+          <select id="terrain-select"></select>
+          <input type="range" id="terrain-opacity" min="0" max="100" value="70" hidden aria-label="Terrain opacity" data-i18n-attr="aria-label:terrain.opacity;title:terrain.opacity" />
+        </div>
+        <details class="sec" open>
+          <summary data-i18n="sec.property">Property &amp; boundaries</summary>
+          <div class="layers">
+            <label class="chk"><input type="checkbox" data-layer="parcels" /> <i class="sw" style="background:transparent;border-color:#f6b26b"></i><span data-i18n="layer.parcels">Property parcels &amp; assessment</span></label>
+            <label class="chk"><input type="checkbox" data-layer="localgov" /> <span data-i18n="layer.localgov">Local governments &amp; rural districts</span></label>
+            <label class="chk"><input type="checkbox" data-layer="roads" /> <span data-i18n="layer.roads">Roads &amp; street names</span></label>
+          </div>
+        </details>
         <details class="sec" open>
           <summary data-i18n="sec.land">Land &amp; nature — province-wide</summary>
           <div class="layers">
@@ -49,6 +68,8 @@
             <label class="chk"><input type="checkbox" id="crown-toggle" data-layer="crown" /> <i class="sw" style="background:#df73ff"></i><span data-i18n="layer.crown">Crown land</span></label>
             <label class="chk"><input type="checkbox" id="ecoregions-toggle" data-layer="ecoregions" /> <span data-i18n="layer.ecoregions">Ecoregions</span></label>
             <label class="chk"><input type="checkbox" id="ecodistricts-toggle" data-layer="ecodistricts" /> <i class="sw dash" style="border-color:#9fe3c5"></i><span data-i18n="layer.ecodistricts">Ecodistricts</span></label>
+            <label class="chk"><input type="checkbox" data-layer="psw" /> <i class="sw" style="background:#2fa39b"></i><span data-i18n="layer.psw">Significant wetlands + 30 m buffer</span></label>
+            <label class="chk"><input type="checkbox" data-layer="flood" /> <i class="sw" style="background:#3fae2a"></i><span data-i18n="layer.flood">Flood hazard areas &amp; past floods</span></label>
           </div>
           <p class="fine" id="land-status" hidden></p>
         </details>
@@ -99,8 +120,10 @@
         <p id="caption-body"></p>
       </div>
       <div id="measure-panel" hidden>
+        <div id="measure-chart" hidden></div>
         <span id="measure-readout" aria-live="polite"></span>
         <span class="mp-btns">
+          <button id="measure-profile" type="button" hidden data-i18n="profile.btn">Elevation profile</button>
           <button id="measure-undo" type="button" data-i18n="measure.undo">Undo</button>
           <button id="measure-clear" type="button" data-i18n="measure.clear">Clear</button>
           <button id="measure-done" type="button" data-i18n="measure.done">Done</button>
