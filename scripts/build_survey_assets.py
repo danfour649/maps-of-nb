@@ -54,9 +54,9 @@ def monuments(zip_bytes: bytes) -> list[list]:
 
 
 def boundary() -> dict:
+    from shapely import make_valid
     from shapely.geometry import shape
     from shapely.ops import unary_union
-    from shapely import make_valid
     gj = None
     for attempt in range(3):
         try:
