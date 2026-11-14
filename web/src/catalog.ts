@@ -26,6 +26,14 @@ export type OverlayKey = 'parcels' | 'localgov' | 'roads' | 'survey' | 'psw' | '
 const NONNA_WMS = 'https://nonna-geoserver.data.chs-shc.ca/geoserver/wms?service=WMS&version=1.1.1&request=GetMap' +
   '&layers=nonna:NONNA%20100&styles=&srs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256&format=image/png&transparent=true';
 const SOUNDINGS_URL = '/bathymetry-fredericton.geojson';
+// Static survey-view assets built by scripts/build_survey_assets.py from
+// GeoNB's own downloads: every located monument as [lng, lat, destroyed]
+// triples, and the provincial outline (the twelve Regional Service
+// Commission polygons unioned). GeoNB's survey MapServer draws nothing
+// below 1:3.5M (HPN) / 1:50k (Conventional), so the viewer draws these
+// itself or a province-wide survey view would show no pins at all.
+const SURVEY_DOTS_URL = '/survey-monuments.json';
+const NB_BOUNDARY_URL = '/nb-boundary.geojson';
 const OVERLAYS: Record<OverlayKey, { tiles: string; minzoom?: number; opacity: number; attribution: string }> = {
   // Scale limits below mirror the services' own (they draw nothing further out).
   parcels: { tiles: mapExport('GeoNB_SNB_Parcels'), minzoom: 13, opacity: 0.9, attribution: `Parcels, assessment ${SNB}` },
@@ -161,6 +169,44 @@ export function initCatalog(
     soundings = (gj.features ?? []).map((f: any) => ({ pt: f.geometry.coordinates as LngLat, d: f.properties.d, bed: f.properties.bed }));
     (map.getSource('cat-soundings') as maplibregl.GeoJSONSource).setData(gj);
   }).catch(() => { soundingsLoad = null; }));
+
+  // Survey view at province zoom: a dot for every monument in GeoNB's
+  // published download, plus the provincial outline INSTEAD of the
+  // Fredericton city outline (the hunt is province-wide; the city line
+  // comes back when the survey layer goes off). The GeoNB raster takes
+  // over as the detailed rendering from z15, where its Conventional
+  // network starts to draw, so the dots hand over there.
+  map.addSource('cat-survey-dots', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'cat-survey-dots', type: 'circle', source: 'cat-survey-dots', maxzoom: 15, layout: { visibility: 'none' },
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 1.1, 8, 1.6, 11, 2.4, 14.9, 3.4],
+      'circle-color': ['case', ['==', ['get', 'd'], 1], '#9a8f7a', '#d9a441'],
+      'circle-opacity': ['case', ['==', ['get', 'd'], 1], 0.4, 0.85],
+      'circle-stroke-color': 'rgba(8,12,16,0.55)',
+      'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 8, 0, 12, 0.6],
+    },
+  }, before('boundary-fill'));
+  let surveyDotsLoad: Promise<void> | null = null;
+  const loadSurveyDots = () => (surveyDotsLoad ??= fetch(SURVEY_DOTS_URL).then((r) => r.json()).then((j) => {
+    const features = (j.points ?? []).map((p: number[]) => ({
+      type: 'Feature', geometry: { type: 'Point', coordinates: [p[0], p[1]] }, properties: { d: p[2] },
+    }));
+    (map.getSource('cat-survey-dots') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features } as any);
+  }).catch(() => { surveyDotsLoad = null; }));
+  map.addSource('cat-nb-boundary', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'cat-nb-boundary-case', type: 'line', source: 'cat-nb-boundary', layout: { visibility: 'none' },
+    paint: { 'line-color': 'rgba(8,14,20,0.55)', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 10, 4.5] },
+  }, before('boundary-fill'));
+  map.addLayer({
+    id: 'cat-nb-boundary-line', type: 'line', source: 'cat-nb-boundary', layout: { visibility: 'none' },
+    paint: { 'line-color': '#ffd166', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1.6, 10, 2.4], 'line-opacity': 0.95 },
+  }, before('boundary-fill'));
+  let nbBoundaryLoad: Promise<void> | null = null;
+  const loadNbBoundary = () => (nbBoundaryLoad ??= fetch(NB_BOUNDARY_URL).then((r) => r.json()).then((gj) => {
+    (map.getSource('cat-nb-boundary') as maplibregl.GeoJSONSource).setData(gj);
+  }).catch(() => { nbBoundaryLoad = null; }));
 
   map.addSource('cat-focus', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({ id: 'cat-focus-fill', type: 'fill', source: 'cat-focus', paint: { 'fill-color': '#7fd0ff', 'fill-opacity': 0.18 } }, before('boundary-fill'));
@@ -389,11 +435,22 @@ export function initCatalog(
       on[key] = value;
       map.setLayoutProperty(`cat-${key}`, 'visibility', value ? 'visible' : 'none');
       const min = OVERLAYS[key].minzoom;
-      if (value && min && map.getZoom() < min) opts.toast(t('cat.zoomin'));
+      // Survey no longer nags for zoom: its dots draw at every zoom.
+      if (value && min && key !== 'survey' && map.getZoom() < min) opts.toast(t('cat.zoomin'));
       if (!value && key === 'parcels') focus([]);
       if (key === 'bathy') {
         map.setLayoutProperty('cat-soundings', 'visibility', value ? 'visible' : 'none');
         if (value) void loadSoundings();
+      }
+      if (key === 'survey') {
+        map.setLayoutProperty('cat-survey-dots', 'visibility', value ? 'visible' : 'none');
+        map.setLayoutProperty('cat-nb-boundary-case', 'visibility', value ? 'visible' : 'none');
+        map.setLayoutProperty('cat-nb-boundary-line', 'visibility', value ? 'visible' : 'none');
+        // The hunt is province-wide: while survey is on, the province
+        // outline replaces the Fredericton city outline.
+        if (map.getLayer('boundary-fill')) map.setLayoutProperty('boundary-fill', 'visibility', value ? 'none' : 'visible');
+        if (map.getLayer('boundary-line')) map.setLayoutProperty('boundary-line', 'visibility', value ? 'none' : 'visible');
+        if (value) { void loadSurveyDots(); void loadNbBoundary(); }
       }
       opts.onChange();
     },

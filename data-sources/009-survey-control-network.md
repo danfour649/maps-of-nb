@@ -40,3 +40,15 @@ the province-wide framework of brass-marked concrete monuments (planned at
 - Display is the service's own rendered export (catalogue raster overlay,
   minzoom 11); identify is a ±90 m envelope query + nearest-point pick,
   because a raw point query against point layers effectively never hits.
+- The service's own scale limits leave a province-wide view empty (HPN
+  draws from 1:3.5M, Conventional from 1:50k), so the viewer also carries
+  two static assets built by `scripts/build_survey_assets.py` from
+  GeoNB's published CSV download (`downloads/hpn_current/nbcontrol.zip`):
+  `web/public/survey-monuments.json` — every located monument (25,890 of
+  26,286 records; 396 publish no coordinates) as [lng, lat, destroyed]
+  triples, drawn as dots below z15 — and `web/public/nb-boundary.geojson`,
+  the provincial outline (union of the twelve Regional Service Commission
+  polygons from GeoNB_ELG_Local_Governance, generalised). While the
+  survey layer is on, the province outline replaces the Fredericton city
+  outline; the monument download is also the source of the McFam
+  Monument Hunt lists.
