@@ -233,6 +233,16 @@ describe('shareable state', () => {
     expect(parseState('?base=evil&layers=pna,<script>,nope&pna=III&img=<x>&terrain=a/b')).toEqual({ ...DEFAULT_STATE, layers: ['pna'] });
     expect(parseState('?pna=none').pnaClasses).toEqual([]);
   });
+  it('opens bare links on the survey system, but respects an explicit layers=', () => {
+    // No layers param at all: the default (survey on) applies.
+    expect(parseState('').layers).toEqual(['survey']);
+    expect(parseState('?lang=fr').layers).toEqual(['survey']);
+    // An explicit empty set stays empty, on the wire as layers=none.
+    expect(parseState('?layers=none').layers).toEqual([]);
+    expect(parseState('?layers=').layers).toEqual([]);
+    expect(writeState('', { ...DEFAULT_STATE, layers: [] })).toBe('?layers=none');
+    expect(parseState(writeState('', { ...DEFAULT_STATE, layers: [] })).layers).toEqual([]);
+  });
 });
 
 describe('i18n', () => {

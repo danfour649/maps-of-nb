@@ -36,7 +36,15 @@ const VIEWS: Record<string, { center: [number, number]; zoom: number }> = {
   northside: { center: [-66.6285, 45.9789], zoom: 14.5 },
   city: { center: [-66.66, 45.96], zoom: 12 },
 };
-const NB_BOUNDS: [[number, number], [number, number]] = [[-69.1, 44.55], [-63.7, 48.1]];
+// The default framing (Daniel's ruling, 2026-11-14): the province with its
+// neighbours around it — Maine, Nova Scotia, PEI and the Gulf in shot, the
+// way his phone screenshot of the McFam embed framed it — not a tight fit
+// to the province's own bounds ([-69.1, 44.55]–[-63.7, 48.1]), which runs
+// it edge to edge. Those bounds expanded by ~1.3° of longitude and ~0.7°
+// of latitude a side; fitBounds scales the frame to whatever screen (or
+// McFam iframe) the map opens in, so the framing holds on a phone and on
+// a desktop alike. Centred on [-66.4, ~46.4].
+const PROVINCE_FRAME: [[number, number], [number, number]] = [[-70.4, 43.9], [-62.4, 48.9]];
 
 {
   let saved: string | null = null;
@@ -244,11 +252,17 @@ const style: maplibregl.StyleSpecification = {
   ],
 };
 
+// A URL hash (#zoom/lat/lng…) is an explicit position — a shared link or the
+// McFam embed's old deep link — and MapLibre's hash handling honours it over
+// the constructor view. With no hash the map opens on the default framing:
+// the whole province, survey system up (DEFAULT_STATE in urlstate.ts).
+const hasHashPosition = /^#\d/.test(location.hash);
 const map = new maplibregl.Map({
   container: 'map',
   style,
-  center: VIEWS.downtown.center,
-  zoom: VIEWS.downtown.zoom,
+  ...(hasHashPosition
+    ? { center: VIEWS.downtown.center, zoom: VIEWS.downtown.zoom }
+    : { bounds: PROVINCE_FRAME, fitBoundsOptions: { padding: 24 } }),
   hash: true,
   attributionControl: { compact: true },
 });
@@ -302,7 +316,7 @@ document.querySelectorAll<HTMLButtonElement>('#views button').forEach((btn) => {
     }
     if (btn.dataset.view === 'province') {
       stopTour();
-      map.fitBounds(NB_BOUNDS, { padding: 20, pitch: 0, bearing: 0, duration: 1800 });
+      map.fitBounds(PROVINCE_FRAME, { padding: 24, pitch: 0, bearing: 0, duration: 1800 });
       return;
     }
     const v = VIEWS[btn.dataset.view!];
