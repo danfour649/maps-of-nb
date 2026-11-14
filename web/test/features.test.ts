@@ -8,6 +8,7 @@ import {
 } from '../src/geo';
 import { toAssessment } from '../src/property';
 import { splitOwner, toPnaEntry, searchPna, type PnaEntry } from '../src/pna';
+import { toSurveyPoint, nearestSurvey } from '../src/survey';
 import { buildPdf, pageSizePt, niceScale } from '../src/pdf';
 import { parseState, writeState, DEFAULT_STATE } from '../src/urlstate';
 import { detectLang, i18nKeys, i18nRow, TOUR_TEXT } from '../src/i18n';
@@ -131,6 +132,58 @@ describe('protected natural areas', () => {
     expect(searchPna(entries, 'grand lac', 'fr')[0].nameFr).toBe('Grand Lac');
     expect(searchPna(entries, 'zzz', 'en')).toEqual([]);
     expect(searchPna(entries, 'b', 'en', 1)).toHaveLength(1);
+  });
+});
+
+describe('survey control', () => {
+  const hpn = {
+    type: 'Feature', geometry: { type: 'Point', coordinates: [-66.659878, 45.933506] },
+    properties: {
+      Mon: 28149, Name: 'ACS FREDERICTON', Status: 'NACC', DateInsp: 1209600000000,
+      OrthoHt: 117.934, LevHt: null, E83CS: 2487601.199, N83CS: 7437047.558,
+      Order_: null, class: 'AA', sketchNum: 28149,
+    },
+  };
+  const conv = {
+    type: 'Feature', geometry: { type: 'Point', coordinates: [-66.623258, 45.951768] },
+    properties: {
+      Mon: 241, Status: 'UNKNOWN', Elev: 7.273, E83adj: 2490444.281, N83adj: 7439072.152,
+      class: 'D1', sketch: 'MAP098/MON00241',
+    },
+  };
+  it('shapes a High Precision Network station', () => {
+    const s = toSurveyPoint(hpn, 'hpn')!;
+    expect(s.mon).toBe('28149');
+    expect(s.name).toBe('ACS FREDERICTON');
+    expect(s.heightM).toBeCloseTo(117.934);
+    expect(s.easting).toBeCloseTo(2487601.199);
+    expect(s.orderClass).toBe('AA'); // Order_ is null, class carries it
+    expect(s.inspected).toBe(new Date(1209600000000).toISOString().slice(0, 10));
+    expect(s.sketch).toBe('28149');
+  });
+  it('falls back to the levelling height when no orthometric height is published', () => {
+    const f = { ...hpn, properties: { ...hpn.properties, OrthoHt: null, LevHt: '117.774' } };
+    expect(toSurveyPoint(f, 'hpn')!.heightM).toBeCloseTo(117.774);
+  });
+  it('shapes a conventional monument from its differently-named fields', () => {
+    const s = toSurveyPoint(conv, 'conv')!;
+    expect(s.mon).toBe('241');
+    expect(s.name).toBe('');
+    expect(s.heightM).toBeCloseTo(7.273);
+    expect(s.northing).toBeCloseTo(7439072.152);
+    expect(s.orderClass).toBe('D1');
+    expect(s.inspected).toBeNull();
+  });
+  it('drops features without a monument number or a point', () => {
+    expect(toSurveyPoint({ properties: {}, geometry: hpn.geometry }, 'hpn')).toBeNull();
+    expect(toSurveyPoint({ properties: { Mon: 1 }, geometry: null }, 'conv')).toBeNull();
+  });
+  it('finds the nearest monument inside the range and none outside it', () => {
+    const pts = [toSurveyPoint(hpn, 'hpn')!, toSurveyPoint(conv, 'conv')!];
+    const hit = nearestSurvey(pts, [-66.6599, 45.9335], 120);
+    expect(hit?.item.mon).toBe('28149');
+    expect(hit!.dist).toBeLessThan(5);
+    expect(nearestSurvey(pts, [-66.66, 45.95], 120)).toBeNull();
   });
 });
 
