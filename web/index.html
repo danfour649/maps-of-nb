@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Maps of NB — Fredericton from GeoNB data</title>
-    <meta name="description" content="Interactive maps of Fredericton and New Brunswick built on GeoNB open data — provincial orthophotos at 0.15 m, topo basemaps, and more." />
+    <title>Maps of NB — New Brunswick from GeoNB open data</title>
+    <meta name="description" content="Interactive maps of Fredericton and New Brunswick built on GeoNB open data — 0.15 m orthophotos, Protected Natural Areas, Crown land, search, measuring and print-ready exports. English / français." />
     <script>
       window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
     </script>
@@ -15,45 +15,104 @@
       <header id="hud">
         <div class="hud-head">
           <h1>Maps of NB</h1>
-          <button id="hud-toggle" aria-label="Show or hide controls" aria-expanded="true">▾</button>
-        </div>
-        <div id="hud-body">
-        <p class="sub">Fredericton, straight from <a href="https://geonb.snb.ca" target="_blank" rel="noreferrer">GeoNB</a> open data — the same source feeding the <a href="https://github.com/danfour649/maps-of-nb" target="_blank" rel="noreferrer">maps-of-nb</a> catalogue and the next generation of GTA Fredericton maps.</p>
-        <div class="row">
-          <span class="label">Basemap</span>
-          <div class="seg" id="basemap-seg">
-            <button data-base="esri-imagery" class="on">Esri imagery</button>
-            <button data-base="geonb-imagery">GeoNB imagery</button>
-            <button data-base="geonb-topo">GeoNB topo</button>
+          <div class="hud-actions">
+            <button id="lang-btn" class="chip" data-i18n-attr="aria-label:lang.switch;title:lang.switch">FR</button>
+            <button id="hud-toggle" data-i18n-attr="aria-label:hud.toggle" aria-label="Show or hide controls" aria-expanded="true">▾</button>
           </div>
         </div>
-        <div class="row">
-          <label class="chk"><input type="checkbox" id="year-toggle" /> Imagery-year overlay</label>
-          <label class="chk"><input type="checkbox" id="b3d-toggle" /> 3D buildings (LiDAR heights)</label>
-          <label class="chk"><input type="checkbox" id="contours-toggle" /> 10 m contours</label>
-          <label class="chk"><input type="checkbox" id="wetlands-toggle" /> Wetlands</label>
+        <div id="search" role="search">
+          <input id="search-input" type="search" autocomplete="off" spellcheck="false" enterkeyhint="search"
+            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-results"
+            placeholder="Search places, addresses, PID / PAN…" aria-label="Search the map"
+            data-i18n-attr="placeholder:search.placeholder;aria-label:search.label" />
+          <button id="search-clear" type="button" hidden aria-label="Clear search" data-i18n-attr="aria-label:search.clear">×</button>
+          <ul id="search-results" role="listbox" hidden></ul>
         </div>
+        <div id="hud-body">
+        <p class="sub" data-i18n-html="hud.sub">Fredericton and New Brunswick, straight from <a href="https://geonb.snb.ca" target="_blank" rel="noreferrer">GeoNB</a> open data.</p>
         <div class="row">
-          <button id="tour-btn" class="tour">▶ Tour Fredericton</button>
-          <button id="gm-btn" class="tour alt">🎮 Game mesh explorer</button>
+          <span class="label" data-i18n="basemap">Basemap</span>
+          <div class="seg" id="basemap-seg">
+            <button data-base="esri" class="on" data-i18n="basemap.esri">Esri imagery</button>
+            <button data-base="geonb" data-i18n="basemap.geonb">GeoNB imagery</button>
+            <button data-base="topo" data-i18n="basemap.topo">Topo</button>
+            <button data-base="grey" data-i18n="basemap.grey">Grey</button>
+          </div>
+        </div>
+        <div class="pick">
+          <label class="label" for="img-select" data-i18n="img.label">Imagery by year</label>
+          <select id="img-select"></select>
+          <input type="range" id="img-opacity" min="0" max="100" value="100" hidden aria-label="Imagery opacity" data-i18n-attr="aria-label:img.opacity;title:img.opacity" />
+        </div>
+        <div class="pick">
+          <label class="label" for="terrain-select" data-i18n="terrain.label">LiDAR terrain (1 m)</label>
+          <select id="terrain-select"></select>
+          <input type="range" id="terrain-opacity" min="0" max="100" value="70" hidden aria-label="Terrain opacity" data-i18n-attr="aria-label:terrain.opacity;title:terrain.opacity" />
+        </div>
+        <details class="sec" open>
+          <summary data-i18n="sec.property">Property &amp; boundaries</summary>
+          <div class="layers">
+            <label class="chk"><input type="checkbox" data-layer="parcels" /> <i class="sw" style="background:transparent;border-color:#f6b26b"></i><span data-i18n="layer.parcels">Property parcels &amp; assessment</span></label>
+            <label class="chk"><input type="checkbox" data-layer="localgov" /> <span data-i18n="layer.localgov">Local governments &amp; rural districts</span></label>
+            <label class="chk"><input type="checkbox" data-layer="roads" /> <span data-i18n="layer.roads">Roads &amp; street names</span></label>
+          </div>
+        </details>
+        <details class="sec" open>
+          <summary data-i18n="sec.land">Land &amp; nature — province-wide</summary>
+          <div class="layers">
+            <label class="chk"><input type="checkbox" id="pna-toggle" data-layer="pna" /> <span data-i18n="layer.pna">Protected Natural Areas</span></label>
+            <div class="sub-layers" id="pna-classes">
+              <label class="chk"><input type="checkbox" id="pna-c1" checked /> <i class="sw" style="background:#e5484d"></i><span data-i18n="pna.c1">Class I — access restricted</span></label>
+              <label class="chk"><input type="checkbox" id="pna-c2" checked /> <i class="sw" style="background:#f2c230"></i><span data-i18n="pna.c2">Class II — low-impact access</span></label>
+            </div>
+            <label class="chk"><input type="checkbox" id="crown-toggle" data-layer="crown" /> <i class="sw" style="background:#df73ff"></i><span data-i18n="layer.crown">Crown land</span></label>
+            <label class="chk"><input type="checkbox" id="ecoregions-toggle" data-layer="ecoregions" /> <span data-i18n="layer.ecoregions">Ecoregions</span></label>
+            <label class="chk"><input type="checkbox" id="ecodistricts-toggle" data-layer="ecodistricts" /> <i class="sw dash" style="border-color:#9fe3c5"></i><span data-i18n="layer.ecodistricts">Ecodistricts</span></label>
+            <label class="chk"><input type="checkbox" data-layer="psw" /> <i class="sw" style="background:#2fa39b"></i><span data-i18n="layer.psw">Significant wetlands + 30 m buffer</span></label>
+            <label class="chk"><input type="checkbox" data-layer="flood" /> <i class="sw" style="background:#3fae2a"></i><span data-i18n="layer.flood">Flood hazard areas &amp; past floods</span></label>
+            <label class="chk"><input type="checkbox" data-layer="bathy" /> <i class="sw" style="background:linear-gradient(90deg,#d7301f,#f7e04a,#2a6fc4)"></i><span data-i18n="layer.bathy">Water depth (CHS bathymetry)</span></label>
+          </div>
+          <p class="fine" id="land-status" hidden></p>
+        </details>
+        <details class="sec" open>
+          <summary data-i18n="sec.city">Fredericton layers</summary>
+          <div class="layers">
+            <label class="chk"><input type="checkbox" id="year-toggle" data-layer="year" /> <span data-i18n="layer.year">Imagery-year overlay</span></label>
+            <label class="chk"><input type="checkbox" id="b3d-toggle" data-layer="b3d" /> <span data-i18n="layer.b3d">3D buildings (LiDAR heights)</span></label>
+            <label class="chk"><input type="checkbox" id="contours-toggle" data-layer="contours" /> <i class="sw line" style="background:#c9a86a"></i><span data-i18n="layer.contours">10 m contours</span></label>
+            <label class="chk"><input type="checkbox" id="wetlands-toggle" data-layer="wetlands" /> <i class="sw" style="background:#3f9d63"></i><span data-i18n="layer.wetlands">Wetlands</span></label>
+          </div>
           <span class="hint" id="b3d-hint"></span>
+        </details>
+        <div class="row tools">
+          <button id="measure-btn" class="tour alt" data-i18n="tools.measure">📏 Measure</button>
+          <button id="print-btn" class="tour alt" data-i18n="tools.print">🖨️ Print / export</button>
+          <button id="share-btn" class="tour alt" data-i18n="tools.share">🔗 Copy link</button>
         </div>
-        <div class="row" id="gm-terrain-row" hidden>
-          <label class="chk"><input type="checkbox" id="gm-terrain" /> 3D terrain relief (heavier — off by default)</label>
-        </div>
-        <p class="fine" id="gm-stats" hidden></p>
-        <div class="row">
-          <button id="cmp-btn" class="tour alt">🗺️ Overlay OpenStreetMap</button>
-        </div>
-        <p class="fine" id="cmp-stats" hidden></p>
+        <details class="sec" id="sec-explore" open>
+          <summary data-i18n="sec.explore">Explore Fredericton</summary>
+          <div class="row">
+            <button id="tour-btn" class="tour">▶ Tour Fredericton</button>
+            <button id="gm-btn" class="tour alt">🎮 Game mesh explorer</button>
+          </div>
+          <div class="row" id="gm-terrain-row" hidden>
+            <label class="chk"><input type="checkbox" id="gm-terrain" /> <span data-i18n="gm.terrain">3D terrain relief (heavier — off by default)</span></label>
+          </div>
+          <p class="fine" id="gm-stats" hidden></p>
+          <div class="row">
+            <button id="cmp-btn" class="tour alt">🗺️ Overlay OpenStreetMap</button>
+          </div>
+          <p class="fine" id="cmp-stats" hidden></p>
+        </details>
         <div class="row views" id="views">
-          <span class="label">Go to</span>
-          <button data-view="downtown">Downtown</button>
-          <button data-view="unb">UNB / STU</button>
-          <button data-view="northside">Northside</button>
-          <button data-view="city">Whole city</button>
+          <span class="label" data-i18n="goto">Go to</span>
+          <button data-view="downtown" data-i18n="view.downtown">Downtown</button>
+          <button data-view="unb" data-i18n="view.unb">UNB / STU</button>
+          <button data-view="northside" data-i18n="view.northside">Northside</button>
+          <button data-view="city" data-i18n="view.city">Whole city</button>
+          <button data-view="province" data-i18n="view.province">New Brunswick</button>
         </div>
-        <p class="fine">Imagery: GeoNB orthophotos (latest contribution 13,000 km² at 0.15 m, flown 2025). Esri layer via Esri World Imagery. Not affiliated with the Government of New Brunswick.</p>
+        <p class="fine" data-i18n="footer.fine">Imagery: GeoNB orthophotos. Not affiliated with the Government of New Brunswick.</p>
         </div>
       </header>
       <div id="map"></div>
@@ -61,6 +120,53 @@
         <h2 id="caption-title"></h2>
         <p id="caption-body"></p>
       </div>
+      <div id="measure-panel" hidden>
+        <div id="measure-chart" hidden></div>
+        <span id="measure-readout" aria-live="polite"></span>
+        <span class="mp-btns">
+          <button id="measure-profile" type="button" hidden data-i18n="profile.btn">Elevation profile</button>
+          <button id="measure-undo" type="button" data-i18n="measure.undo">Undo</button>
+          <button id="measure-clear" type="button" data-i18n="measure.clear">Clear</button>
+          <button id="measure-done" type="button" data-i18n="measure.done">Done</button>
+        </span>
+      </div>
+      <div id="toast" role="status" aria-live="polite" hidden></div>
+      <dialog id="print-dlg">
+        <form id="print-form" method="dialog">
+          <h2 data-i18n="print.title">Print / export map</h2>
+          <label><span data-i18n="print.maptitle">Title</span><input id="print-title" name="title" type="text" maxlength="90" /></label>
+          <div class="grid2">
+            <label><span data-i18n="print.paper">Paper</span>
+              <select name="paper">
+                <option value="letter">Letter</option>
+                <option value="tabloid">Tabloid</option>
+                <option value="a4">A4</option>
+                <option value="a3">A3</option>
+              </select></label>
+            <label><span data-i18n="print.orientation">Orientation</span>
+              <select name="orientation">
+                <option value="landscape" data-i18n="print.landscape">Landscape</option>
+                <option value="portrait" data-i18n="print.portrait">Portrait</option>
+              </select></label>
+            <label><span data-i18n="print.format">Format</span>
+              <select name="format">
+                <option value="pdf">PDF</option>
+                <option value="png">PNG</option>
+              </select></label>
+            <label><span data-i18n="print.quality">Resolution</span>
+              <select name="dpi">
+                <option value="100" data-i18n="print.q.draft">Draft (100 dpi)</option>
+                <option value="150" selected data-i18n="print.q.standard">Standard (150 dpi)</option>
+                <option value="200" data-i18n="print.q.fine">Fine (200 dpi)</option>
+              </select></label>
+          </div>
+          <p class="fine" id="print-status" aria-live="polite"></p>
+          <div class="dlg-btns">
+            <button type="button" id="print-cancel" class="tour alt" data-i18n="print.cancel">Cancel</button>
+            <button type="submit" id="print-go" class="tour" data-i18n="print.go">Export</button>
+          </div>
+        </form>
+      </dialog>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
