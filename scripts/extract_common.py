@@ -9,6 +9,7 @@ files into MANIFEST.md.
 """
 import hashlib
 import json
+import math
 import subprocess
 import time
 import urllib.parse
@@ -18,6 +19,7 @@ from pathlib import Path
 UA = "maps-of-nb/1.0"
 REPO = Path(__file__).resolve().parent.parent
 BOUNDARY_PATH = REPO / "data" / "game-exports" / "fredericton" / "boundary.geojson"
+GAME_BOUNDARY_PATH = REPO / "data" / "game-exports" / "fredericton" / "boundary_game.geojson"
 SOURCE_FILE = "_source.json"
 
 
@@ -86,6 +88,92 @@ def load_boundary(path: Path = BOUNDARY_PATH) -> dict:
 def boundary_rings(boundary: dict) -> list:
     geom = boundary["features"][0]["geometry"]
     return geom["coordinates"] if geom["type"] == "Polygon" else geom["coordinates"][0]
+
+
+# ------------------------------------------------------------- game boundary
+# The legal municipal boundary is the wrong shape for the game world: it
+# slices the Saint John River west of downtown (the city limit crosses the
+# river there, so anything clipped to it amputates the west reach), and its
+# annexation lobes read as choppy damage from the air. The game therefore
+# works to a derived boundary: a circle that fully encompasses the official
+# boundary (area centroid + farthest-vertex distance + margin, rounded up
+# to the next 500 m). It is a working extent for game data and display —
+# NOT the legal municipal limit, which stays in boundary.geojson and keeps
+# driving the civic extracts and the viewer's official totals.
+
+def _all_rings(geom: dict) -> list:
+    if geom["type"] == "Polygon":
+        return geom["coordinates"]
+    if geom["type"] == "MultiPolygon":
+        return [ring for poly in geom["coordinates"] for ring in poly]
+    raise ValueError(f"unsupported boundary geometry: {geom['type']}")
+
+
+def _metres_per_degree(lat: float) -> tuple:
+    return (111132.92 - 559.82 * math.cos(2 * math.radians(lat)),
+            111412.84 * math.cos(math.radians(lat)))
+
+
+def game_boundary_from(boundary: dict, margin_m: float = 1500.0,
+                       segments: int = 180) -> dict:
+    """Encompassing-circle game boundary derived from an official boundary
+    GeoJSON (FeatureCollection, EPSG:4326). Deterministic: same official
+    boundary in, same circle out (drift-guarded by tests/test_game_boundary.py).
+    """
+    geom = boundary["features"][0]["geometry"]
+    rings = _all_rings(geom)
+    outer = max(rings, key=lambda r: abs(sum(
+        r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]
+        for i in range(len(r) - 1))))
+    # Area centroid of the largest ring, via shoelace in a local metric frame.
+    lat0 = (min(p[1] for p in outer) + max(p[1] for p in outer)) / 2
+    m_lat, m_lon = _metres_per_degree(lat0)
+    lon_ref, lat_ref = outer[0][0], outer[0][1]
+    pts = [((p[0] - lon_ref) * m_lon, (p[1] - lat_ref) * m_lat) for p in outer]
+    cross = cx = cy = 0.0
+    for i in range(len(pts) - 1):
+        f = pts[i][0] * pts[i + 1][1] - pts[i + 1][0] * pts[i][1]
+        cross += f
+        cx += (pts[i][0] + pts[i + 1][0]) * f
+        cy += (pts[i][1] + pts[i + 1][1]) * f
+    area2 = cross  # twice the signed area
+    cen_x, cen_y = cx / (3 * area2), cy / (3 * area2)
+    centre = [lon_ref + cen_x / m_lon, lat_ref + cen_y / m_lat]
+    m_lat, m_lon = _metres_per_degree(centre[1])
+    farthest = max(
+        math.hypot((p[0] - centre[0]) * m_lon, (p[1] - centre[1]) * m_lat)
+        for ring in rings for p in ring)
+    radius = math.ceil((farthest + margin_m) / 500.0) * 500.0
+    ring = [[round(centre[0] + radius * math.cos(2 * math.pi * i / segments) / m_lon, 6),
+             round(centre[1] + radius * math.sin(2 * math.pi * i / segments) / m_lat, 6)]
+            for i in range(segments + 1)]
+    props = {
+        "name": "Fredericton game boundary (encompassing circle)",
+        "kind": "game-boundary",
+        "centre": [round(centre[0], 6), round(centre[1], 6)],
+        "radius_m": radius,
+        "margin_m": margin_m,
+        "covers_official_boundary": True,
+        "derived_from": "GeoNB_ELG_Local_Governance layer 8, 'The City of Fredericton'",
+        "note": ("Working extent for game/world data and display. Fully "
+                 "encompasses the official municipal boundary so boundary-"
+                 "clipped data (rivers, roads, buildings) is never sliced by "
+                 "the legal limit. NOT the legal city limit — see "
+                 "boundary.geojson for that."),
+    }
+    return {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": props,
+         "geometry": {"type": "Polygon", "coordinates": [ring]}}]}
+
+
+def load_game_boundary(path: Path = GAME_BOUNDARY_PATH) -> dict:
+    """The derived game boundary (see game_boundary_from). Uses the copy
+    committed in data/game-exports/fredericton/; derives it from the official
+    boundary when the copy is missing. Regenerate with
+    scripts/build_game_boundary.py."""
+    if path.exists():
+        return json.loads(path.read_text())
+    return game_boundary_from(load_boundary())
 
 
 def bbox_of_coords(coords) -> tuple:
