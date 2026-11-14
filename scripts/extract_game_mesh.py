@@ -5,11 +5,16 @@ Two modes:
   --bbox W,S,E,N   Extract one envelope (default: downtown Fredericton pilot tile).
   --city NAME      Extract a full municipality: the official boundary polygon
                    comes from GeoNB_ELG_Local_Governance ("Local Government
-                   Boundaries - January 2023") and every building/road inside
-                   it is pulled with POST-paged ArcGIS queries.
+                   Boundaries - January 2023"), but layers are clipped to
+                   the derived GAME boundary — an encompassing circle around
+                   the municipality (see extract_common.game_boundary_from).
+                   The legal limit slices the Saint John River west of
+                   Fredericton and reads as choppy damage from the air; the
+                   circle fully encompasses the city so no reach or suburb
+                   is cut. The official polygon is still saved as-is.
 
 Output: <out>/buildings.geojson, roads.geojson, lidar_tiles.json, stats.json
-(plus boundary.geojson in --city mode). Stdlib only.
+(plus boundary.geojson and boundary_game.geojson in --city mode). Stdlib only.
 
 Usage:
     python3 scripts/extract_game_mesh.py
@@ -21,6 +26,8 @@ import json
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+import extract_common as ec
 
 REST = "https://geonb.snb.ca/arcgis/rest/services"
 UA = {"User-Agent": "maps-of-nb/1.0"}
@@ -227,7 +234,11 @@ def main() -> None:
             print(f"boundary: using cached {cache}")
         else:
             boundary = fetch_boundary(args.city)
-        geom = boundary["features"][0]["geometry"]
+        # Clip to the derived game boundary (encompassing circle), not the
+        # legal limit — see the module docstring. The official polygon is
+        # still written to the export untouched below.
+        game = ec.game_boundary_from(boundary)
+        geom = game["features"][0]["geometry"]
         rings = geom["coordinates"] if geom["type"] == "Polygon" else geom["coordinates"][0]
         # Thin the ring for use as a query filter: the full 3,485-point ring
         # makes ~120 KB POST bodies that GeoNB's server keeps truncating.
@@ -241,7 +252,7 @@ def main() -> None:
         query_rings = [thin(r) for r in rings]
         geometry = json.dumps({"rings": query_rings, "spatialReference": {"wkid": 4326}})
         geometry_type = "esriGeometryPolygon"
-        bbox = bbox_of(boundary)
+        bbox = bbox_of(game)
         out = Path(args.out or "data/game-exports/city")
     else:
         bbox = tuple(float(x) for x in (args.bbox or "-66.652,45.955,-66.628,45.970").split(","))
@@ -256,13 +267,17 @@ def main() -> None:
         stats["municipality"] = args.city
         (out / "boundary.geojson").write_text(json.dumps(boundary))
         print(f"boundary: {args.city} -> {out}/boundary.geojson")
+        (out / "boundary_game.geojson").write_text(json.dumps(game))
+        gp = game["features"][0]["properties"]
+        stats["game_boundary"] = {"centre": gp["centre"], "radius_m": gp["radius_m"]}
+        print(f"game boundary: circle r={gp['radius_m']:.0f} m -> {out}/boundary_game.geojson")
 
     only = {x.strip() for x in args.only.split(",") if x.strip()}
     for name, (service, layer, fields, order_field) in LAYERS.items():
         if only and name not in only:
             continue
         if boundary:
-            geom0 = boundary["features"][0]["geometry"]
+            geom0 = game["features"][0]["geometry"]
             rings0 = geom0["coordinates"] if geom0["type"] == "Polygon" else geom0["coordinates"][0]
             feats = grid_query_all(service, layer, fields, order_field, bbox, rings0)
         else:
