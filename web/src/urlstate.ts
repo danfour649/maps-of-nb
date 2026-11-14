@@ -6,7 +6,7 @@
 export const BASE_KEYS = ['esri', 'geonb', 'topo', 'grey'] as const;
 export type BaseKey = (typeof BASE_KEYS)[number];
 export const LAYER_KEYS = ['year', 'b3d', 'contours', 'wetlands', 'pna', 'crown', 'ecoregions', 'ecodistricts',
-  'parcels', 'localgov', 'roads', 'psw', 'flood', 'bathy'] as const;
+  'parcels', 'localgov', 'roads', 'survey', 'psw', 'flood', 'bathy'] as const;
 export type LayerKey = (typeof LAYER_KEYS)[number];
 
 export type ViewState = {

@@ -7,6 +7,7 @@
 import * as maplibregl from 'maplibre-gl';
 import { bboxOf, labelPoint, parsePropertyId, nearestSounding, type LngLat } from './geo';
 import { toAssessment, PAN_FIELDS, txt, type Assessment } from './property';
+import { toSurveyPoint, nearestSurvey, type SurveyPoint } from './survey';
 import { t, getLang, locale, onLang } from './i18n';
 
 const GEONB = 'https://geonb.snb.ca/arcgis/rest/services';
@@ -19,7 +20,7 @@ const imageExport = (service: string) =>
   `${IMAGE}/${service}/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=512,512&format=jpgpng&f=image`;
 
 // ---------- registry ----------
-export type OverlayKey = 'parcels' | 'localgov' | 'roads' | 'psw' | 'flood' | 'bathy';
+export type OverlayKey = 'parcels' | 'localgov' | 'roads' | 'survey' | 'psw' | 'flood' | 'bathy';
 // CHS renders its bathymetric grid to a depth-coloured picture (red = shallow,
 // blue = deep); the WMS carries no depth values, only pixels.
 const NONNA_WMS = 'https://nonna-geoserver.data.chs-shc.ca/geoserver/wms?service=WMS&version=1.1.1&request=GetMap' +
@@ -30,6 +31,7 @@ const OVERLAYS: Record<OverlayKey, { tiles: string; minzoom?: number; opacity: n
   parcels: { tiles: mapExport('GeoNB_SNB_Parcels'), minzoom: 13, opacity: 0.9, attribution: `Parcels, assessment ${SNB}` },
   localgov: { tiles: mapExport('GeoNB_ELG_Local_Governance'), opacity: 0.85, attribution: 'Local governance © GNB Environment and Local Government' },
   roads: { tiles: mapExport('GeoNB_Basemap_NBRN'), opacity: 1, attribution: `Roads ${SNB}` },
+  survey: { tiles: mapExport('GeoNB_SNB_SurveyControlNetwork'), minzoom: 11, opacity: 1, attribution: `Survey control ${SNB}` },
   psw: { tiles: mapExport('GeoNB_ENV_Wetlands', '0,1'), minzoom: 11, opacity: 0.8, attribution: 'Wetlands © GNB Environment and Local Government' },
   flood: { tiles: mapExport('GeoNB_ENV_Flood', '2,3,4,5,7'), opacity: 0.7, attribution: 'Flood mapping © GNB Environment and Local Government' },
   bathy: { tiles: NONNA_WMS, opacity: 0.75, attribution: 'Bathymetry © Canadian Hydrographic Service (NONNA) — not for navigation' },
@@ -128,7 +130,7 @@ export function initCatalog(
   map: maplibregl.Map,
   opts: { toast: (msg: string) => void; onChange: () => void; openPopupAt: (pt: LngLat) => void },
 ): CatalogApi {
-  const on: Record<OverlayKey, boolean> = { parcels: false, localgov: false, roads: false, psw: false, flood: false, bathy: false };
+  const on: Record<OverlayKey, boolean> = { parcels: false, localgov: false, roads: false, survey: false, psw: false, flood: false, bathy: false };
   let soundings: { pt: LngLat; d: number; bed: number }[] = [];
   let soundingsLoad: Promise<void> | null = null;
   let vintage = '';
@@ -250,6 +252,43 @@ export function initCatalog(
     return sec;
   }
 
+  const m3 = (n: number) => n.toLocaleString(locale(), { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+
+  function surveySection(s: SurveyPoint, dist: number): HTMLElement {
+    const sec = el('section', 'pp-sec');
+    sec.append(el('div', 'pp-kind', t('survey.kind')), el('h3', undefined, s.name || t('survey.mon', { n: s.mon })));
+    const dl = el('dl');
+    const row = (k: string, v: string | null) => { if (v) dl.append(el('dt', undefined, k), el('dd', undefined, v)); };
+    if (s.name) row(t('survey.monlabel'), s.mon);
+    row(t('survey.net'), t(s.net === 'hpn' ? 'survey.hpn' : 'survey.conv'));
+    row(t('survey.height'), s.heightM === null ? null : `${m3(s.heightM)} m`);
+    row(t('survey.csrs'), s.easting === null || s.northing === null ? null : `${m3(s.easting)} E · ${m3(s.northing)} N`);
+    row(t('survey.status'), s.status || null);
+    row(t('survey.order'), s.orderClass || null);
+    row(t('survey.insp'), fmtDate(s.inspected));
+    row(t('survey.sketch'), s.sketch || null);
+    if (dist > 15) row(t('survey.away'), `${Math.round(dist)} m`);
+    sec.append(dl);
+    return sec;
+  }
+
+  const SURVEY_FIELDS: Record<'hpn' | 'conv', string> = {
+    hpn: 'Mon,Name,Status,DateInsp,OrthoHt,LevHt,E83CS,N83CS,Order_,class,sketchNum',
+    conv: 'Mon,Status,Elev,E83adj,N83adj,class,sketch',
+  };
+  /** Nearest survey monument within 120 m of a click, from both networks.
+   *  Points need an envelope, not a point query: a ±90 m box, then nearest. */
+  async function surveyNear(pt: LngLat) {
+    const dLat = 90 / 111_320, dLon = 90 / (111_320 * Math.cos((pt[1] * Math.PI) / 180));
+    const env = `${pt[0] - dLon},${pt[1] - dLat},${pt[0] + dLon},${pt[1] + dLat}`;
+    const q = (layer: number, net: 'hpn' | 'conv') => getJson(`${GEONB}/GeoNB_SNB_SurveyControlNetwork/MapServer/${layer}/query?${new URLSearchParams({
+      geometry: env, geometryType: 'esriGeometryEnvelope', inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
+      outFields: SURVEY_FIELDS[net], returnGeometry: 'true', outSR: '4326', f: 'geojson', resultRecordCount: '40',
+    })}`).then((j) => (j.features ?? []).map((f: any) => toSurveyPoint(f, net)).filter(Boolean) as SurveyPoint[])
+      .catch(() => [] as SurveyPoint[]);
+    return nearestSurvey([...(await q(0, 'hpn')), ...(await q(1, 'conv'))], pt, 120);
+  }
+
   let seq = 0;
   function identify(pt: LngLat, root: HTMLElement, ctx: HTMLElement) {
     const mine = ++seq;
@@ -270,6 +309,19 @@ export function initCatalog(
         slot.replaceWith(...list.map((a, i) => propertySection(a, i === 0 ? parcels[0] : undefined)));
         focus(list.map((a) => a.geometry));
       }).catch(() => { if (live()) slot.replaceChildren(el('div', 'pp-kind', t('prop.kind')), el('p', 'pp-rule', t('prop.error'))); });
+    }
+    if (on.survey) {
+      const slot = el('section', 'pp-sec');
+      slot.append(el('div', 'pp-kind', t('survey.kind')), el('p', 'pp-rule', t('survey.loading')));
+      root.prepend(slot);
+      surveyNear(pt).then((hit) => {
+        if (!live()) return;
+        if (!hit) {
+          slot.replaceChildren(el('div', 'pp-kind', t('survey.kind')), el('p', 'pp-rule', t('survey.none')));
+          return;
+        }
+        slot.replaceWith(surveySection(hit.item, hit.dist));
+      }).catch(() => { if (live()) slot.replaceChildren(el('div', 'pp-kind', t('survey.kind')), el('p', 'pp-rule', t('survey.error'))); });
     }
     if (on.localgov) {
       const dd = el('dd', undefined, '…');
@@ -328,7 +380,7 @@ export function initCatalog(
   }
 
   const api: CatalogApi = {
-    identifyActive: () => on.parcels || on.localgov || on.bathy || !!terrain,
+    identifyActive: () => on.parcels || on.survey || on.localgov || on.bathy || !!terrain,
     identify,
     clearFocus: () => focus([]),
     searchProperty,
@@ -353,6 +405,7 @@ export function initCatalog(
     legend() {
       const out: { color: string; label: string }[] = [];
       if (on.parcels) out.push({ color: '#f6b26b', label: t('layer.parcels') });
+      if (on.survey) out.push({ color: '#d9a441', label: t('layer.survey') });
       if (on.flood) out.push({ color: '#3fae2a', label: t('layer.flood') });
       if (on.psw) out.push({ color: '#2fa39b', label: t('layer.psw') });
       if (on.bathy) out.push({ color: '#2a6fc4', label: t('layer.bathy') });
