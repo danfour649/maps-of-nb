@@ -137,12 +137,31 @@ try {
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load', timeout: 30000 });
   await page.waitForFunction(() => window.__map, null, { timeout: 15000 });
+  // Default opening view (2026-11-14): Archie's survey system up and the
+  // whole province framed with its neighbours around it — not downtown.
+  const opening = await page.waitForFunction(() => {
+    const m = window.__map;
+    const b = m.getBounds();
+    const framed = b.getWest() < -69.1 && b.getEast() > -63.7 && b.getNorth() > 48.1 && b.getSouth() < 44.55;
+    const dots = m.queryRenderedFeatures({ layers: ['cat-survey-dots'] }).length;
+    const outline = m.queryRenderedFeatures({ layers: ['cat-nb-boundary-line'] }).length;
+    return framed && dots > 0 && outline > 0 ? { zoom: m.getZoom(), dots } : false;
+  }, null, { timeout: 20000 }).then((h) => h.jsonValue()).catch(() => null);
+  if (!opening) fail('bare link did not open with the survey layer on and the province framed');
+  else console.log(`ok: bare link opens on the survey view, province framed (z${opening.zoom.toFixed(1)}, ${opening.dots} monument dots in view)`);
+  if (!(await page.isChecked('input[data-layer="survey"]'))) fail('survey checkbox is not ticked on a bare link');
   // The official city boundary must come from the live replacement service
   // (the retired one 404s, which silently dropped the outline and totals).
-  const boundary = await page.waitForFunction(() => {
-    const n = window.__map.queryRenderedFeatures({ layers: ['boundary-fill'] }).length;
-    return n > 0 ? n : false;
-  }, null, { timeout: 15000 }).then((h) => h.jsonValue()).catch(() => 0);
+  // While survey is on, its fill/line are hidden in favour of the province
+  // outline, so assert on the source data rather than rendered features.
+  let boundary = 0;
+  for (let i = 0; i < 30 && !boundary; i++) {
+    boundary = await page.evaluate(async () => {
+      const d = await window.__map.getSource('city-boundary').getData();
+      return d.features?.length ?? 0;
+    }).catch(() => 0);
+    if (!boundary) await page.waitForTimeout(500);
+  }
   if (!boundary) fail('city boundary did not load from GeoNB_ELG_Local_Governance');
   else console.log('ok: city boundary loaded from the current GeoNB service');
   // Expand the (mobile-collapsed) panel, then enter game mesh mode.
@@ -222,7 +241,7 @@ try {
   await page.check('#pna-c2');
 
   const search = new URL(page.url()).searchParams;
-  if (search.get('layers') !== 'pna,crown') fail(`URL layer state is "${search.get('layers')}", expected "pna,crown"`);
+  if (search.get('layers') !== 'pna,crown,survey') fail(`URL layer state is "${search.get('layers')}", expected "pna,crown,survey" (survey is the default layer)`);
   else console.log('ok: URL carries the layer state');
 
   await page.click('#lang-btn');
