@@ -1,4 +1,4 @@
-click==8.5.0
+click==8.5.1
 mapbox-vector-tile==2.2.0
 mercantile==1.2.1
 pmtiles==3.8.1
